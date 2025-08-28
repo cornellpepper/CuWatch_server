@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Muon Dashboard</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+      #log { white-space: pre; background: #f6f7f8; padding: 1rem; border-radius: 8px; height: 50vh; overflow: auto; }
+      .row { display: flex; gap: 1rem; align-items: center; }
+      input[type=text] { width: 18rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Muon Dashboard</h1>
+    <div class="row">
+      <label>Device ID: <input id="deviceId" type="text" placeholder="dev-001"></label>
+      <label>Payload (JSON): <input id="payload" type="text" value='{"fan":"on"}'></label>
+      <button id="send">Send Control</button>
+      <a id="export" href="#" target="_blank">Export CSV (last 10k)</a>
+    </div>
+    <label>Window:
+      <select id="win">
+        <option value="5m">Last 5 min</option>
+        <option value="15m">Last 15 min</option>
+        <option value="1h" selected>Last 1 hour</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+    </select> <span id="winStatus" style="margin-left:.5rem;opacity:.7"></span>
+    <label style="margin-left:1rem">Avg window:
+      <select id="avgWin">
+        <option value="5">5 s</option>
+        <option value="15" selected>15 s</option>
+        <option value="60">60 s</option>
+        <option value="300">5 min</option>
+      </select>
+    </label>
+    <label style="margin-left:0.5rem">Units:
+      <select id="rateUnit">
+        <option value="per_s" selected>events/s</option>
+        <option value="per_min">events/min</option>
+      </select>
+    </label>
+    <h3>Event rate (boxcar average)</h3>
+<canvas id="muChart" height="140"></canvas>
+<h3>Live stream</h3>
+    <pre id="log"></pre>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script>
+      const log = document.getElementById('log');
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+      ws.onmessage = (e) => { log.textContent += e.data + "\n"; log.scrollTop = log.scrollHeight; };
+
+      const deviceInput = document.getElementById('deviceId');
+      const payloadInput = document.getElementById('payload');
+      const exportLink = document.getElementById('export');
+
+      function updateExportLink() {
+        const id = deviceInput.value.trim();
+        if (!id) { exportLink.href = '#'; return; }
+        const code = win.value;
+        const params = new URLSearchParams();
+        const start = rangeStartFromNow(code);
+        if (start) params.set('start', start.toISOString());
+        exportLink.href = `/api/export/${encodeURIComponent(id)}.csv` + (params.toString() ? `?${params.toString()}` : '');
+      }
+      deviceInput.addEventListener('input', () => { updateExportLink(); refreshChart(); });
+      updateExportLink();
+
+      document.getElementById('send').onclick = async () => {
+        const id = deviceInput.value.trim();
+        if (!id) { alert("Enter device ID"); return; }
+        let payload;
+        try { payload = JSON.parse(payloadInput.value); } catch (e) { alert("Payload must be valid JSON"); return; }
+        const res = await fetch(`/api/control/${encodeURIComponent(id)}`, {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        });
+        const js = await res.json();
+        log.textContent += "Sent control: " + JSON.stringify(js) + "\n";
+      };
+
+      // --- Chart setup ---
+      const ctx = document.getElementById('muChart').getContext('2d');
+      const muChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{ label: 'rate', data: [], pointRadius: 0, borderWidth: 1, tension: 0 }]
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          scales: {
+            x: { type: 'time', time: { tooltipFormat: 'yyyy-MM-dd HH:mm:ss' } },
+            y: { beginAtZero: true }
+          },
+          plugins: { legend: { display: true } }
+        }
+      });
+
+    const win = document.getElementById('win');
+    const winStatus = document.getElementById('winStatus');
+    const avgWin = document.getElementById('avgWin');
+    const rateUnit = document.getElementById('rateUnit');
+
+    // Compute rolling boxcar average of event rate from cumulative muon_count.
+    // rows: [{ ts, muon_count, ... }] sorted in chronological order.
+    // windowSec: window length in seconds.
+    // unit: 'per_s' or 'per_min' for output units.
+    function computeRateSeries(rows, windowSec, unit) {
+      if (!rows || rows.length < 2) return { t: [], y: [] };
+      const ts = rows.map(r => new Date(r.ts).getTime() / 1000); // seconds
+      const cnt = rows.map(r => Number(r.muon_count));
+      const factor = (unit === 'per_min') ? 60 : 1; // convert to events/min if selected
+
+      // Sliding window using two pointers
+      const tOut = [], yOut = [];
+      let j = 0; // window start index
+      for (let i = 0; i < ts.length; i++) {
+        const tRight = ts[i];
+        while (j < i && (tRight - ts[j]) > windowSec) j++;
+        const dt = tRight - ts[j];
+        if (dt <= 0) continue; // avoid div by zero / identical timestamps
+        let dCount = cnt[i] - cnt[j];
+        if (dCount < 0) dCount = 0; // handle counter resets
+        const ratePerSec = dCount / dt;
+        tOut.push(new Date(tRight * 1000));
+        yOut.push(ratePerSec * factor);
+      }
+      return { t: tOut, y: yOut };
+    }
+
+    function rangeStartFromNow(code) {
+      const now = new Date();
+      if (code === 'all') return null;
+      const map = { '5m': 5*60*1000, '15m': 15*60*1000, '1h': 60*60*1000, '24h': 24*60*60*1000 };
+      const ms = map[code] ?? map['1h'];
+      return new Date(now.getTime() - ms);
+    }
+
+    async function refreshChart() {
+      const id = deviceInput.value.trim();
+      if (!id) return;
+
+      const code = win.value;
+      const params = new URLSearchParams({ limit: '20000' });
+      const start = rangeStartFromNow(code);
+      if (start) params.set('start', start.toISOString());
+      winStatus.textContent = (start ? `Window: from ${start.toISOString()} to now` : 'Window: all data');
+
+      try {
+        const resp = await fetch(`/api/samples/${encodeURIComponent(id)}?` + params.toString());
+        const rows = await resp.json();
+        rows.reverse(); // newest-first -> chronological
+
+        // Build rate series using boxcar average
+        const windowSec = parseInt(avgWin.value, 10) || 15;
+        const unit = rateUnit.value; // 'per_s' or 'per_min'
+        const series = computeRateSeries(rows, windowSec, unit);
+
+        muChart.data.labels = series.t;
+        muChart.data.datasets[0].data = series.y;
+        muChart.data.datasets[0].label = (unit === 'per_min') ? `rate (events/min)` : `rate (events/s)`;
+        muChart.update();
+      } catch (e) {
+        console.error('chart refresh failed', e);
+      }
+    }
+
+    deviceInput.addEventListener('input', () => { updateExportLink(); refreshChart(); });
+    win.addEventListener('change', refreshChart);
+    win.addEventListener('input', () => { refreshChart(); updateExportLink(); });
+    avgWin.addEventListener('change', refreshChart);
+    avgWin.addEventListener('input', refreshChart);
+    rateUnit.addEventListener('change', refreshChart);
+    rateUnit.addEventListener('input', refreshChart);
+
+    refreshChart();
+    setInterval(refreshChart, 5000);
+    </script>
+
+  </body>
+</html>

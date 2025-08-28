@@ -1,0 +1,56 @@
+version: "3.9"
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes:
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: iot
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iot"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: ./services/web
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db/iot
+      MQTT_BROKER_URL: mqtt-broker
+      MQTT_BROKER_PORT: 1883
+      SECRET_KEY: "dev"
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_started
+    ports: ["5000:5000"]
+    command: >
+      gunicorn
+      -k eventlet
+      -w 1
+      -b 0.0.0.0:5000
+      app:app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  bridge:
+    build: ./services/bridge
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db/iot
+      MQTT_BROKER_URL: mqtt-broker
+      MQTT_BROKER_PORT: 1883
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_started

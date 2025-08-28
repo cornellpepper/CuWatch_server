@@ -1,0 +1,10 @@
+flask
+flask-sock
+Flask-SQLAlchemy
+sqlalchemy
+psycopg2-binary
+paho-mqtt
+python-dotenv
+gunicorn
+eventlet
+simple-websocket
