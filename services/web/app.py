@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, flash
 from db import init_db, db
 from models import Device, Sample
 from config import Config
@@ -6,10 +6,25 @@ from sockets import init_sockets
 from mqtt_publish import publish_control
 from mqtt_subscribe import LiveStream, start_subscriber
 from datetime import datetime, timezone
+from functools import wraps
+
+def login_required(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login", next=request.path))
+        return view_func(*args, **kwargs)
+    return wrapped
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # Ensure SECRET_KEY for session cookies
+    if not app.config.get("SECRET_KEY"):
+        # Fallback for development; set in Config for production
+        app.config["SECRET_KEY"] = "dev-change-me"
+
     init_db(app)
 
     # Live stream buffer + MQTT subscriber
@@ -19,7 +34,64 @@ def create_app():
 
     @app.route('/')
     def index():
-        return render_template('dashboard.html')
+        if session.get("logged_in"):
+            return redirect(url_for('device_select'))
+        return redirect(url_for('login'))
+
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        # Credentials come from Config; if not provided, accept any non-empty username for dev.
+        expected_user = app.config.get('LOGIN_USER')
+        expected_pass = app.config.get('LOGIN_PASSWORD')
+
+        if request.method == 'POST':
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            ok = False
+            if expected_user and expected_pass:
+                ok = (username == expected_user and password == expected_pass)
+            else:
+                # Dev mode: allow any non-empty username
+                ok = bool(username)
+
+            if ok:
+                session['logged_in'] = True
+                session['username'] = username
+                nxt = request.args.get('next') or url_for('device_select')
+                return redirect(nxt)
+            else:
+                flash('Invalid credentials', 'error')
+
+        return render_template('login.html')
+
+    @app.route('/logout')
+    def logout():
+        session.clear()
+        return redirect(url_for('login'))
+
+    @app.route('/devices')
+    @login_required
+    def device_select():
+        rows = Device.query.order_by(Device.id).all()
+        # Provide a simple page where a user picks a device
+        return render_template('device_select.html', devices=[{
+            'id': d.id,
+            'online': d.online,
+            'device_number': d.device_number,
+            'last_seen': d.last_seen.isoformat() if d.last_seen else None
+        } for d in rows])
+
+    @app.route('/device/<device_id>')
+    @login_required
+    def device_detail(device_id):
+        # The template should render the live chart via sockets and show CSV download links
+        return render_template('device_detail.html', device_id=device_id)
+
+    @app.get('/device/<device_id>/download')
+    @login_required
+    def download_page(device_id):
+        # This page can show quick links to CSV with common ranges
+        return render_template('download.html', device_id=device_id)
 
     @app.route('/api/devices')
     def devices():
