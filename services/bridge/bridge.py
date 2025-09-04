@@ -136,6 +136,10 @@ def on_message(client, userdata, msg):
 
                 # Parse any absolute timestamps present
                 abs_ts = parse_ts(payload.get("timestamp") or payload.get("ts") or payload.get("end_time"))
+                # Guard against bogus epoch/zero timestamps which would anchor at 1970
+                min_valid = datetime(2000, 1, 1, tzinfo=timezone.utc)
+                if abs_ts is not None and abs_ts < min_valid:
+                    abs_ts = None
 
                 # Accept multiple possible keys for a run base time announcement
                 announced_base = (
@@ -144,6 +148,8 @@ def on_message(client, userdata, msg):
                     or parse_ts(payload.get("run_start"))
                     or None
                 )
+                if announced_base is not None and announced_base < min_valid:
+                    announced_base = None
                 run_id = payload.get("run_id") or payload.get("run") or None
 
                 # If a base is announced, persist it in device meta

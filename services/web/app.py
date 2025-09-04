@@ -91,7 +91,10 @@ def create_app():
     @login_required
     def download_page(device_id):
         # This page can show quick links to CSV with common ranges
-        return render_template('download.html', device_id=device_id)
+        # Compute start-of-today in UTC for a convenient quick link
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_iso = today_start.isoformat().replace('+00:00', 'Z')
+        return render_template('download.html', device_id=device_id, today_iso=today_iso)
 
     @app.route('/api/devices')
     def devices():

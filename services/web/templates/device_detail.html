@@ -159,9 +159,16 @@
 
       function computeRates(rows) {
         // rows are newest-first from /api; reverse to time-ascending
-        const asc = [...rows].reverse().filter(r => r.ts && r.muon_count != null);
-        const times = asc.map(r => new Date(r.ts).getTime() / 1000); // seconds
-        const counts = asc.map(r => Number(r.muon_count));
+        const YEAR2000 = 946684800; // seconds since epoch
+        const asc = [];
+        for (const r of [...rows].reverse()) {
+          if (!r || r.muon_count == null || !r.ts) continue;
+          const t = new Date(r.ts).getTime() / 1000;
+          if (!isFinite(t) || t < YEAR2000) continue; // drop bogus 1970/invalid
+          asc.push({ t, c: Number(r.muon_count) });
+        }
+        const times = asc.map(p => p.t); // seconds
+        const counts = asc.map(p => p.c);
         const rates = [];
         const win = 8; // boxcar window size (points)
         if (asc.length <= win) return rates;

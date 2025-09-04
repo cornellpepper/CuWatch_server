@@ -20,7 +20,7 @@
     <h3>Quick links</h3>
     <ul>
       <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 10k rows)</a></li>
-      <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start={{ (namespace() or {}).get('today_iso','') }}">From today</a></li>
+      <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start={{ today_iso|default('') }}">From today</a></li>
       <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start=2025-01-01T00:00:00Z">From Jan 1, 2025</a></li>
     </ul>
 
