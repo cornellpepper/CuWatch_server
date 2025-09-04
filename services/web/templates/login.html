@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Login – CuWatch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+      form { max-width: 360px; display: grid; gap: .75rem; }
+      label { display: grid; gap: .25rem; }
+      input { padding: .5rem .6rem; border: 1px solid #bbb; border-radius: 6px; }
+      button { padding: .6rem .8rem; border: 0; border-radius: 6px; background: #b31b1b; color: white; font-weight: 600; cursor: pointer; }
+      .flash { color: #b31b1b; margin-bottom: .5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>CuWatch Login</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <form method="post">
+      <label>
+        Username
+        <input type="text" name="username" autocomplete="username" required />
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" />
+      </label>
+      <button type="submit">Log in</button>
+    </form>
+  </body>
+</html>

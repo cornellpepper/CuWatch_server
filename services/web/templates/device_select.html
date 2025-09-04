@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Select Device – CuWatch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+      ul { padding-left: 1.25rem; }
+      .meta { color: #444; font-size: .9rem; }
+      a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3rem .6rem; border-radius: 6px; text-decoration: none; }
+      .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+      .logout { color: #b31b1b; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <h1>Select a Device</h1>
+      <a class="logout" href="{{ url_for('logout') }}">Logout</a>
+    </div>
+    {% if devices|length == 0 %}
+      <p>No devices found.</p>
+    {% else %}
+      <ul>
+        {% for d in devices %}
+          <li>
+            <a href="{{ url_for('device_detail', device_id=d.id) }}">
+              Device {{ d.device_number }} – ID {{ d.id }}
+            </a>
+            <div class="meta">
+              {% if d.online %}🟢 online{% else %}⚪ offline{% endif %}
+              {% if d.last_seen %} • last seen {{ d.last_seen }}{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </body>
+</html>

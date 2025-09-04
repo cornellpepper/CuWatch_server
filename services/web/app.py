@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, session, redirect, url_for, flash
 from db import init_db, db
-from models import Device, Sample
+from models import Device, Sample, Run
 from config import Config
 from sockets import init_sockets
 from mqtt_publish import publish_control
@@ -103,6 +103,40 @@ def create_app():
             'last_seen': d.last_seen.isoformat() if d.last_seen else None
         } for d in rows])
 
+    @app.get('/api/device/<device_id>/meta')
+    def device_meta(device_id):
+        d = Device.query.filter_by(id=device_id).first()
+        if not d:
+            return jsonify({"error": "not found"}), 404
+        meta = d.meta
+        if isinstance(meta, str):
+            try:
+                import json as _json
+                meta = _json.loads(meta)
+            except Exception:
+                pass
+        return jsonify({
+            "id": d.id,
+            "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+            "online": d.online,
+            "device_number": d.device_number,
+            "meta": meta,
+        })
+
+    @app.get('/api/device/<device_id>/runs')
+    def device_runs(device_id):
+        rows = Run.query.filter_by(device_id=device_id).order_by(Run.base_ts.desc()).all()
+        return jsonify([
+            {
+                "id": r.id,
+                "device_id": r.device_id,
+                "base_ts": r.base_ts.isoformat() if r.base_ts else None,
+                "run_key": r.run_key,
+                "meta": r.meta,
+            }
+            for r in rows
+        ])
+
     @app.route('/api/samples/<device_id>')
     def samples(device_id):
         # Optional query params: ?limit=1000&start=...&end=...
@@ -190,8 +224,22 @@ def create_app():
         return Response(stream_with_context(gen()), mimetype="text/csv")
 
     @app.post('/api/control/<device_id>')
+    @login_required
     def send_control(device_id):
-        payload = request.get_json(force=True)
+        # Accept a JSON payload of control parameters.
+        # If a 'threshold' is provided, validate it's a 12-bit integer [0..4095].
+        payload = request.get_json(force=True, silent=True) or {}
+
+        if 'threshold' in payload:
+            try:
+                thr = int(payload['threshold'])
+            except Exception:
+                return jsonify({'ok': False, 'error': 'threshold must be an integer'}), 400
+            if thr < 0 or thr > 4095:
+                return jsonify({'ok': False, 'error': 'threshold must be between 0 and 4095'}), 400
+            # Normalize to int in payload
+            payload['threshold'] = thr
+
         publish_control(device_id, payload)
         return jsonify({'ok': True})
 

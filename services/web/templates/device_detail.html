@@ -1,0 +1,306 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Device {{ device_id }} – CuWatch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 1rem; }
+      header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+      header a { text-decoration: none; background: #eee; padding: .3rem .6rem; border-radius: 6px; }
+      .row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
+      .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .stat { font-size: 1.2rem; }
+      canvas { width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 6px; }
+      @media (max-width: 800px){ .grid2 { grid-template-columns: 1fr; } }
+      label,input,select,button { font: inherit; }
+      input[type="number"] { width: 6rem; }
+      .controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+      .small { color: #555; font-size: .9rem; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
+      th { text-align: left; background: #fafafa; position: sticky; top: 0; }
+      tbody { display: block; max-height: 260px; overflow: auto; }
+      thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
+      .statusbox { border: 1px solid #eee; background: #fafafa; border-radius: 6px; padding: .5rem; height: 180px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; white-space: pre-wrap; }
+      /* Override for status KV table to be non-scrollable */
+      #statusKv thead th { position: static; }
+      #statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
+      #statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
+    </style>
+    <!-- Chart.js + time adapter -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  </head>
+  <body>
+    <header>
+      <a href="{{ url_for('device_select') }}">← Devices</a>
+      <h1>Device {{ device_id }}</h1>
+      <a href="{{ url_for('download_page', device_id=device_id) }}">Download CSVs</a>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </header>
+
+    <div class="row">
+      <div class="card grid2">
+        <div>
+          <h3>Live Rate (events/s)</h3>
+          <div class="stat"><span id="rate">–</span></div>
+          <div class="small">Computed from muon_count deltas over time.</div>
+          <div class="controls" style="margin-top:.5rem">
+            <label>Poll (s)
+              <input type="number" id="pollSec" min="1" value="2">
+            </label>
+            <label>Points
+              <input type="number" id="points" min="50" max="20000" value="1000">
+            </label>
+            <button id="reload">Reload</button>
+          </div>
+          <canvas id="plot" width="900" height="300"></canvas>
+        </div>
+        <div>
+          <h3>Latest Samples</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>ts</th>
+                <th>muon_count</th>
+                <th>adc_v</th>
+                <th>temp_adc_v</th>
+                <th>dt</th>
+                <th>coincidence</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1rem;">
+      <div class="card">
+        <div class="card-body">
+          <h3 class="card-title">Current Status</h3>
+          <div class="small mb-2">Last update: <span id="statusUpdated">never</span></div>
+          <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 220px;">Key</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody id="statusKvBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1rem;">
+      <div class="card">
+        <h3>Controls</h3>
+        <div class="controls">
+          <label>Threshold (0–4095)
+            <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
+          </label>
+          <button id="sendThreshold">Send</button>
+          <span id="thresholdStatus" class="small"></span>
+        </div>
+        <div class="small">Sends JSON to MQTT topic <code>control/{{ device_id }}/set</code>.</div>
+      </div>
+    </div>
+
+    <script>
+      const deviceId = "{{ device_id }}";
+
+      const elRate = document.getElementById('rate');
+      const elPlot = document.getElementById('plot');
+      const elBody = document.getElementById('tbody');
+      const elPoll = document.getElementById('pollSec');
+      const elPoints = document.getElementById('points');
+      const elReload = document.getElementById('reload');
+
+      let timer = null;
+
+      // Initialize Chart.js line chart
+      const rateChart = new Chart(elPlot.getContext('2d'), {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Rate (events/s)',
+            data: [],
+            borderColor: '#1f77b4',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0,
+          }]
+        },
+        options: {
+          animation: false,
+          responsive: false,
+          parsing: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: { tooltipFormat: 'yyyy-MM-dd HH:mm:ss', unit: 'minute' },
+              title: { display: true, text: 'Time (UTC)' }
+            },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Rate (events/s)' }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { mode: 'index', intersect: false }
+          }
+        }
+      });
+
+      function computeRates(rows) {
+        // rows are newest-first from /api; reverse to time-ascending
+        const asc = [...rows].reverse().filter(r => r.ts && r.muon_count != null);
+        const times = asc.map(r => new Date(r.ts).getTime() / 1000); // seconds
+        const counts = asc.map(r => Number(r.muon_count));
+        const rates = [];
+        const win = 8; // boxcar window size (points)
+        if (asc.length <= win) return rates;
+        for (let i = win; i < asc.length; i++) {
+          const dt = times[i] - times[i - win];
+          let dc = counts[i] - counts[i - win];
+          if (dc < 0) dc = 0; // guard against counter resets
+          if (dt > 0 && isFinite(dc / dt)) {
+            // align rate to the right edge of the window (time at i)
+            rates.push({ t: times[i], r: dc / dt });
+          }
+        }
+        return rates;
+      }
+
+      // Replaces drawPlot
+      function updateChart(rates) {
+        rateChart.data.datasets[0].data = rates.map(p => ({ x: p.t * 1000, y: p.r }));
+        rateChart.update();
+      }
+
+      function renderTable(rows) {
+        const latest = rows.slice(0, 50); // show newest 50
+        elBody.innerHTML = latest.map(r => `
+          <tr>
+            <td>${r.ts ?? ''}</td>
+            <td>${r.muon_count ?? ''}</td>
+            <td>${r.adc_v ?? ''}</td>
+            <td>${r.temp_adc_v ?? ''}</td>
+            <td>${r.dt ?? ''}</td>
+            <td>${r.coincidence ? 'true' : 'false'}</td>
+          </tr>
+        `).join('');
+      }
+
+      async function loadOnce() {
+        const limit = Math.max(50, Math.min(20000, Number(elPoints.value) || 1000));
+        const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed to fetch samples');
+        const data = await res.json(); // newest-first
+        renderTable(data);
+        const rates = computeRates(data);
+        if (rates.length) {
+          elRate.textContent = rates[rates.length-1].r.toFixed(2);
+        } else {
+          elRate.textContent = '–';
+        }
+        updateChart(rates);
+      }
+
+      function startPolling() {
+        const sec = Math.max(1, Number(elPoll.value) || 2);
+        if (timer) clearInterval(timer);
+        timer = setInterval(loadOnce, sec * 1000);
+      }
+
+      elReload.addEventListener('click', () => {
+        loadOnce().catch(console.error);
+      });
+
+      // Kickoff
+      loadOnce().catch(console.error);
+      startPolling();
+      elPoll.addEventListener('change', startPolling);
+
+      // Live status (current values) via WebSocket
+      const statusKvBody = document.getElementById('statusKvBody');
+      const elStatusUpdated = document.getElementById('statusUpdated');
+      let currentStatus = null;
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+      }
+
+      function renderStatusKV() {
+        if (!currentStatus) return;
+        const entries = Object.entries(currentStatus).filter(([k,_]) => !String(k).startsWith('_'));
+        entries.sort(([a],[b]) => a.localeCompare(b));
+        statusKvBody.innerHTML = entries.map(([k,v]) => {
+          let val = v;
+          if (typeof v === 'object' && v !== null) val = JSON.stringify(v);
+          return `<tr><th scope="row">${escapeHtml(k)}</th><td><code>${escapeHtml(val)}</code></td></tr>`;
+        }).join('');
+      }
+      try {
+        const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            const topic = msg.topic || '';
+            if (topic === `status/${deviceId}`) {
+              const payload = msg.payload;
+              currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
+              if (elStatusUpdated) elStatusUpdated.textContent = new Date().toISOString();
+              renderStatusKV();
+            }
+          } catch {}
+        };
+      } catch {}
+
+      // Periodic refresh (every 30 seconds) to re-render latest values
+      setInterval(renderStatusKV, 30000);
+
+      // Threshold control
+      const elThr = document.getElementById('thresholdInput');
+      const elThrBtn = document.getElementById('sendThreshold');
+      const elThrStatus = document.getElementById('thresholdStatus');
+
+      async function sendThreshold() {
+        elThrStatus.textContent = '';
+        const raw = elThr.value.trim();
+        if (!raw) {
+          elThrStatus.textContent = 'Enter a value';
+          return;
+        }
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 0 || n > 4095) {
+          elThrStatus.textContent = 'Must be integer 0–4095';
+          return;
+        }
+        try {
+          const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ threshold: n })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            elThrStatus.textContent = data.error || 'Failed to send';
+          } else {
+            elThrStatus.textContent = 'Sent';
+          }
+        } catch (e) {
+          elThrStatus.textContent = 'Network error';
+        }
+      }
+
+      elThrBtn.addEventListener('click', sendThreshold);
+    </script>
+  </body>
+</html>

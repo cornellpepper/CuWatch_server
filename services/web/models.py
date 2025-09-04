@@ -9,6 +9,14 @@ class Device(db.Model):
     device_number = db.Column(db.Integer)  # optional mapping at device-level
     meta = db.Column(db.JSON, default=dict)
 
+class Run(db.Model):
+    __tablename__ = "runs"
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    device_id = db.Column(db.String, db.ForeignKey("devices.id"), index=True, nullable=False)
+    base_ts = db.Column(db.DateTime(timezone=True), index=True, nullable=False)
+    run_key = db.Column(db.String)  # optional device-supplied run identifier
+    meta = db.Column(db.String)     # stored as JSON string by the bridge
+
 class Sample(db.Model):
     __tablename__ = "samples"
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
