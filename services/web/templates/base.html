@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{% block title %}CuWatch{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --carnelian: #b31b1b;
+        --gray100: #f7f7f7;
+        --gray200: #e5e5e5;
+        --gray700: #444;
+        --white: #fff;
+        --black: #222;
+        --link: #006aad;
+        --link-hover: #003b5c;
+        --accent: #e87722;
+      }
+      html, body {
+        background: var(--gray100);
+        color: var(--black);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+      }
+      header {
+        background: var(--carnelian);
+        color: var(--white);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.5rem;
+        letter-spacing: 1px;
+      }
+      header nav {
+        display: flex;
+        gap: 1.5rem;
+      }
+      header a, header a:visited {
+        color: var(--white);
+        text-decoration: none;
+        font-weight: 500;
+        transition: color 0.15s;
+      }
+      header a:hover {
+        color: var(--accent);
+      }
+      main {
+        max-width: 900px;
+        margin: 2rem auto;
+        background: var(--white);
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(34,34,34,0.05);
+        padding: 2rem;
+      }
+      a, a:visited {
+        color: var(--link);
+        text-decoration: underline;
+      }
+      a:hover {
+        color: var(--link-hover);
+      }
+      .flash {
+        color: var(--carnelian);
+        margin-bottom: .5rem;
+        font-weight: 500;
+      }
+      /* Utility classes */
+      .btn {
+        display: inline-block;
+        background: var(--carnelian);
+        color: var(--white);
+        border: none;
+        border-radius: 6px;
+        padding: .5rem 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.15s;
+      }
+      .btn:hover {
+        background: var(--accent);
+        color: var(--white);
+      }
+      /* Responsive */
+      @media (max-width: 600px) {
+        main { padding: 1rem; }
+        header { flex-direction: column; align-items: flex-start; gap: .5rem; }
+      }
+      {% block style %}{% endblock %}
+    </style>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    <header>
+      <h1>CuWatch</h1>
+      <nav>
+        {% if current_user.is_authenticated %}
+          <a href="{{ url_for('device_select') }}">Devices</a>
+          <a href="{{ url_for('logout') }}">Logout</a>
+        {% else %}
+          <a href="{{ url_for('login') }}">Login</a>
+        {% endif %}
+      </nav>
+    </header>
+    <main>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

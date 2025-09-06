@@ -21,13 +21,13 @@
     {% if devices|length == 0 %}
       <p>No devices found.</p>
     {% else %}
-      <ul>
+      <ul style="padding-left:1.25rem;">
         {% for d in devices %}
-          <li>
-            <a href="{{ url_for('device_detail', device_id=d.id) }}">
+          <li style="margin-bottom:.7rem;">
+            <a href="{{ url_for('device_detail', device_id=d.id) }}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:.2rem;">
               Device {{ d.device_number }} – ID {{ d.id }}
             </a>
-            <div class="meta">
+            <div class="meta" style="color:var(--gray700);font-size:.95rem;">
               {% if d.online %}🟢 online{% else %}⚪ offline{% endif %}
               {% if d.last_seen %} • last seen {{ d.last_seen }}{% endif %}
             </div>
