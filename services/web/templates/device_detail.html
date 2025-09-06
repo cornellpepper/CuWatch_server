@@ -49,12 +49,12 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 <div class="row">
   <div class="card">
     <div>
-      <h3>Live Rate (events/s)</h3>
+      <h3>Live Rate (Hz)</h3>
       <div class="stat"><span id="rate">–</span></div>
       <div class="small">Computed using absolute timestamps (<code>ts</code>) over the selected time window.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
-          <input type="number" id="pollSec" min="1" value="2">
+          <input type="number" id="pollSec" min="1" value="5">
         </label>
         <label>Window
           <select id="windowSel">
@@ -127,7 +127,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         type: 'line',
         data: {
           datasets: [{
-            label: 'Rate (events/s)',
+            label: 'Rate (Hz)',
             data: [],
             borderColor: '#1f77b4',
             borderWidth: 2,
@@ -144,15 +144,15 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
             x: {
               type: 'time',
               time: { tooltipFormat: 'yyyy-MM-dd HH:mm:ss', unit: 'minute' },
-              title: { display: true, text: 'Time (UTC)' }
+              title: { display: true, text: 'Time (localtime)' }
             },
             y: {
               beginAtZero: true,
-              title: { display: true, text: 'Rate (events/s)' }
+              title: { display: true, text: 'Rate (Hz)' }
             }
           },
           plugins: {
-            legend: { display: false },
+            legend: { display: true },
             tooltip: { mode: 'index', intersect: false }
           }
         }
