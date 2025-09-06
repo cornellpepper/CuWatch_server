@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Download Data – Device {{ device_id }}{% endblock %}
 {% block style %}
+<style>
 ul { padding-left: 1.2rem; }
 a { text-decoration: none; }
 input { padding: .4rem .5rem; border: 1px solid #bbb; border-radius: 6px; }
 .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1b; color: white; cursor: pointer; }
+</style>
 {% endblock %}
 {% block content %}
 <a href="{{ url_for('device_detail', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:1rem;">← Back to Device</a>
@@ -40,14 +42,3 @@ button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1
   });
 </script>
 {% endblock %}
-        const e = document.getElementById('end').value.trim();
-        const params = new URLSearchParams();
-        if (s) params.set('start', s);
-        if (e) params.set('end', e);
-        const url = `/api/export/{{ device_id }}.csv` + (params.toString() ? `?${params}` : '');
-        window.location.href = url;
-      });
-    </script>
-    {% endblock %}
-  </body>
-</html>

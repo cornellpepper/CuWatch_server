@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Device {{ device_id }} – CuWatch{% endblock %}
 {% block style %}
+<style>
 .row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
 .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -21,6 +22,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 #statusKv thead th { position: static; }
 #statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
 #statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
+</style>
 {% endblock %}
 {% block content %}
 <nav style="margin-bottom:1rem;">
