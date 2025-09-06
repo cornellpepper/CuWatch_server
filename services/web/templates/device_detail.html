@@ -1,365 +1,330 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Device {{ device_id }} – CuWatch</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-      /* ...existing style code, but remove header and main styling... */
-      .row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
-      .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
-      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-      .stat { font-size: 1.2rem; }
-      canvas { width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 6px; }
-      @media (max-width: 800px){ .grid2 { grid-template-columns: 1fr; } }
-      label,input,select,button { font: inherit; }
-      input[type="number"] { width: 6rem; }
-      .controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-      .small { color: #555; font-size: .9rem; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
-      th { text-align: left; background: #fafafa; position: sticky; top: 0; }
-      tbody { display: block; max-height: 260px; overflow: auto; }
-      thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
-      .statusbox { border: 1px solid #eee; background: #fafafa; border-radius: 6px; padding: .5rem; height: 180px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; white-space: pre-wrap; }
-      /* Override for status KV table to be non-scrollable */
-      #statusKv thead th { position: static; }
-      #statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
-      #statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
-    </style>
-  </head>
-  <body>
-    {% block title %}Device {{ device_id }} – CuWatch{% endblock %}
-    {% block style %}
-      /* ...existing style code, but remove header and main styling... */
-      .row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
-      .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
-      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-      .stat { font-size: 1.2rem; }
-      canvas { width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 6px; }
-      @media (max-width: 800px){ .grid2 { grid-template-columns: 1fr; } }
-      label,input,select,button { font: inherit; }
-      input[type="number"] { width: 6rem; }
-      .controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-      .small { color: #555; font-size: .9rem; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
-      th { text-align: left; background: #fafafa; position: sticky; top: 0; }
-      tbody { display: block; max-height: 260px; overflow: auto; }
-      thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
-      .statusbox { border: 1px solid #eee; background: #fafafa; border-radius: 6px; padding: .5rem; height: 180px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; white-space: pre-wrap; }
-      /* Override for status KV table to be non-scrollable */
-      #statusKv thead th { position: static; }
-      #statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
-      #statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
-    {% endblock %}
-    {% block content %}
-      <nav style="margin-bottom:1rem;">
-        <a href="{{ url_for('device_select') }}" class="btn" style="background:var(--gray200);color:var(--black);">← Devices</a>
-        <a href="{{ url_for('download_page', device_id=device_id) }}" class="btn">Download CSVs</a>
-      </nav>
-      <h2>CuWatch Node {{ device_id }}</h2>
-      <div class="row">
-        <div class="card grid2">
-          <div>
-            <h3>Live Rate (events/s)</h3>
-            <div class="stat"><span id="rate">–</span></div>
-            <div class="small">Computed from muon_count deltas over the selected time window.</div>
-            <div class="controls" style="margin-top:.5rem">
-              <label>Poll (s)
-                <input type="number" id="pollSec" min="1" value="2">
-              </label>
-              <label>Window
-                <select id="windowSel">
-                  <option value="300">5 min</option>
-                  <option value="1800" selected>30 min</option>
-                  <option value="3600">1 hour</option>
-                  <option value="7200">2 hours</option>
-                  <option value="21600">6 hours</option>
-                </select>
-              </label>
-              <button id="reload" class="btn" style="padding:.3rem .8rem;">Reload</button>
-            </div>
-            <canvas id="plot" width="900" height="300"></canvas>
-          </div>
-          <div>
-            <h3>Latest Samples</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>ts</th>
-                  <th>muon_count</th>
-                  <th>adc_v</th>
-                  <th>temp_adc_v</th>
-                  <th>dt</th>
-                  <th>coincidence</th>
-                </tr>
-              </thead>
-              <tbody id="tbody"></tbody>
-            </table>
-          </div>
-        </div>
+{% extends "base.html" %}
+{% block title %}Device {{ device_id }} – CuWatch{% endblock %}
+{% block style %}
+.row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
+.card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.stat { font-size: 1.2rem; }
+canvas { width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 6px; }
+@media (max-width: 800px){ .grid2 { grid-template-columns: 1fr; } }
+label,input,select,button { font: inherit; }
+input[type="number"] { width: 6rem; }
+.controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.small { color: #555; font-size: .9rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
+th { text-align: left; background: #fafafa; position: sticky; top: 0; }
+tbody { display: block; max-height: 260px; overflow: auto; }
+thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
+.statusbox { border: 1px solid #eee; background: #fafafa; border-radius: 6px; padding: .5rem; height: 180px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; white-space: pre-wrap; }
+/* Override for status KV table to be non-scrollable */
+#statusKv thead th { position: static; }
+#statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
+#statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
+{% endblock %}
+{% block content %}
+<nav style="margin-bottom:1rem;">
+  <a href="{{ url_for('device_select') }}" class="btn" style="background:var(--gray200);color:var(--black);">← Devices</a>
+  <a href="{{ url_for('download_page', device_id=device_id) }}" class="btn">Download CSVs</a>
+</nav>
+<h2>CuWatch Node {{ device_id }}</h2>
+<div class="row">
+  <div class="card grid2">
+    <div>
+      <h3>Live Rate (events/s)</h3>
+      <div class="stat"><span id="rate">–</span></div>
+      <div class="small">Computed from muon_count deltas over the selected time window.</div>
+      <div class="controls" style="margin-top:.5rem">
+        <label>Poll (s)
+          <input type="number" id="pollSec" min="1" value="2">
+        </label>
+        <label>Window
+          <select id="windowSel">
+            <option value="300">5 min</option>
+            <option value="1800" selected>30 min</option>
+            <option value="3600">1 hour</option>
+            <option value="7200">2 hours</option>
+            <option value="21600">6 hours</option>
+          </select>
+        </label>
+        <button id="reload" class="btn" style="padding:.3rem .8rem;">Reload</button>
       </div>
-      <div class="row" style="margin-top: 1rem;">
-        <div class="card">
-          <div class="card-body">
-            <h3 class="card-title">Current Status</h3>
-            <div class="small mb-2">Last update: <span id="statusUpdated">never</span></div>
-            <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width: 220px;">Key</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody id="statusKvBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <div class="row" style="margin-top: 1rem;">
-        <div class="card">
-          <h3>Controls</h3>
-          <div class="controls">
-            <label>Threshold (0–4095)
-              <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
-            </label>
-            <button id="sendThreshold" class="btn">Send</button>
-            <span id="thresholdStatus" class="small"></span>
-          </div>
-          <div class="small">Sends JSON to MQTT topic <code>control/{{ device_id }}/set</code>.</div>
-        </div>
-      </div>
-    {% endblock %}
-    {% block scripts %}
-      <!-- ...existing script code... -->
-      <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-      <script>
-        const deviceId = "{{ device_id }}";
+      <canvas id="plot" width="900" height="300"></canvas>
+    </div>
+    <div>
+      <h3>Latest Samples</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>ts</th>
+            <th>muon_count</th>
+            <th>adc_v</th>
+            <th>temp_adc_v</th>
+            <th>dt</th>
+            <th>coincidence</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="row" style="margin-top: 1rem;">
+  <div class="card">
+    <div class="card-body">
+      <h3 class="card-title">Current Status</h3>
+      <div class="small mb-2">Last update: <span id="statusUpdated">never</span></div>
+      <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width: 220px;">Key</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody id="statusKvBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="row" style="margin-top: 1rem;">
+  <div class="card">
+    <h3>Controls</h3>
+    <div class="controls">
+      <label>Threshold (0–4095)
+        <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
+      </label>
+      <button id="sendThreshold" class="btn">Send</button>
+      <span id="thresholdStatus" class="small"></span>
+    </div>
+    <div class="small">Sends JSON to MQTT topic <code>control/{{ device_id }}/set</code>.</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script>
+      const deviceId = "{{ device_id }}";
 
-        const elRate = document.getElementById('rate');
-        const elPlot = document.getElementById('plot');
-        const elBody = document.getElementById('tbody');
-        const elPoll = document.getElementById('pollSec');
-        const elWindow = document.getElementById('windowSel');
-        const elReload = document.getElementById('reload');
+      const elRate = document.getElementById('rate');
+      const elPlot = document.getElementById('plot');
+      const elBody = document.getElementById('tbody');
+      const elPoll = document.getElementById('pollSec');
+      const elWindow = document.getElementById('windowSel');
+      const elReload = document.getElementById('reload');
 
-        let timer = null;
+      let timer = null;
 
-        // Initialize Chart.js line chart
-        const rateChart = new Chart(elPlot.getContext('2d'), {
-          type: 'line',
-          data: {
-            datasets: [{
-              label: 'Rate (events/s)',
-              data: [],
-              borderColor: '#1f77b4',
-              borderWidth: 2,
-              pointRadius: 0,
-              tension: 0,
-            }]
-          },
-          options: {
-            animation: false,
-            responsive: false,
-            parsing: false,
-            scales: {
-              x: {
-                type: 'time',
-                time: { tooltipFormat: 'yyyy-MM-dd HH:mm:ss', unit: 'minute' },
-                title: { display: true, text: 'Time (UTC)' }
-              },
-              y: {
-                beginAtZero: true,
-                title: { display: true, text: 'Rate (events/s)' }
-              }
+      // Initialize Chart.js line chart
+      const rateChart = new Chart(elPlot.getContext('2d'), {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: 'Rate (events/s)',
+            data: [],
+            borderColor: '#1f77b4',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0,
+          }]
+        },
+        options: {
+          animation: false,
+          responsive: false,
+          parsing: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: { tooltipFormat: 'yyyy-MM-dd HH:mm:ss', unit: 'minute' },
+              title: { display: true, text: 'Time (UTC)' }
             },
-            plugins: {
-              legend: { display: false },
-              tooltip: { mode: 'index', intersect: false }
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Rate (events/s)' }
             }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { mode: 'index', intersect: false }
           }
+        }
+      });
+
+      function computeRates(rows, windowSec) {
+        // rows are newest-first from /api; reverse to time-ascending
+        const YEAR2000 = 946684800; // seconds since epoch
+        const asc = [];
+        for (const r of [...rows].reverse()) {
+          if (!r || r.muon_count == null || !r.ts) continue;
+          const t = new Date(r.ts).getTime() / 1000; // seconds
+          if (!isFinite(t) || t < YEAR2000) continue;
+          asc.push({ t, c: Number(r.muon_count) });
+        }
+        if (asc.length < 2) return [];
+        const rates = [];
+        let j = 0;
+        for (let i = 0; i < asc.length; i++) {
+          const ti = asc[i].t;
+          // advance j to maintain windowSec
+          while (j < i && (ti - asc[j].t) > windowSec) j++;
+          if (j === i) continue;
+          const dt = asc[i].t - asc[j].t;
+          let dc = asc[i].c - asc[j].c;
+          if (dc < 0) dc = 0; // guard counter wrap
+          if (dt > 0 && isFinite(dc / dt)) {
+            rates.push({ t: ti, r: dc / dt });
+          }
+        }
+        return rates;
+      }
+
+      // Replaces drawPlot
+      function updateChart(rates) {
+        // Set x-axis window to match selected time window
+        if (rates.length) {
+          const windowSec = Math.max(300, Number(elWindow.value) || 1800);
+          const now = Date.now();
+          rateChart.options.scales.x.min = now - windowSec * 1000;
+          rateChart.options.scales.x.max = now;
+        } else {
+          rateChart.options.scales.x.min = undefined;
+          rateChart.options.scales.x.max = undefined;
+        }
+        rateChart.data.datasets[0].data = rates.map(p => ({ x: p.t * 1000, y: p.r }));
+        rateChart.update();
+      }
+
+      function renderTable(rows) {
+        const latest = rows.slice(0, 50); // show newest 50
+        elBody.innerHTML = latest.map(r => `
+          <tr>
+            <td>${r.ts ?? ''}</td>
+            <td>${r.muon_count ?? ''}</td>
+            <td>${r.adc_v ?? ''}</td>
+            <td>${r.temp_adc_v ?? ''}</td>
+            <td>${r.dt ?? ''}</td>
+            <td>${r.coincidence ? 'true' : 'false'}</td>
+          </tr>
+        `).join('');
+      }
+
+      async function loadOnce() {
+        const windowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
+        // Fetch a generous number of points; filter client-side by time window.
+        const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=20000`);
+        if (!res.ok) throw new Error('Failed to fetch samples');
+        const data = await res.json(); // newest-first
+        // Keep only samples within the selected window for table display
+        const nowMs = Date.now();
+        const sinceMs = nowMs - windowSec * 1000;
+        const inWindow = data.filter(r => {
+          if (!r.ts) return false;
+          const tms = new Date(r.ts).getTime();
+          return isFinite(tms) && tms >= sinceMs;
         });
-
-        function computeRates(rows, windowSec) {
-          // rows are newest-first from /api; reverse to time-ascending
-          const YEAR2000 = 946684800; // seconds since epoch
-          const asc = [];
-          for (const r of [...rows].reverse()) {
-            if (!r || r.muon_count == null || !r.ts) continue;
-            const t = new Date(r.ts).getTime() / 1000; // seconds
-            if (!isFinite(t) || t < YEAR2000) continue;
-            asc.push({ t, c: Number(r.muon_count) });
-          }
-          if (asc.length < 2) return [];
-          const rates = [];
-          let j = 0;
-          for (let i = 0; i < asc.length; i++) {
-            const ti = asc[i].t;
-            // advance j to maintain windowSec
-            while (j < i && (ti - asc[j].t) > windowSec) j++;
-            if (j === i) continue;
-            const dt = asc[i].t - asc[j].t;
-            let dc = asc[i].c - asc[j].c;
-            if (dc < 0) dc = 0; // guard counter wrap
-            if (dt > 0 && isFinite(dc / dt)) {
-              rates.push({ t: ti, r: dc / dt });
-            }
-          }
-          return rates;
+        renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
+        const rates = computeRates(data, windowSec);
+        if (rates.length) {
+          elRate.textContent = rates[rates.length - 1].r.toFixed(2);
+        } else {
+          elRate.textContent = '–';
         }
+        updateChart(rates);
+      }
 
-        // Replaces drawPlot
-        function updateChart(rates) {
-          // Set x-axis window to match selected time window
-          if (rates.length) {
-            const windowSec = Math.max(300, Number(elWindow.value) || 1800);
-            const now = Date.now();
-            rateChart.options.scales.x.min = now - windowSec * 1000;
-            rateChart.options.scales.x.max = now;
-          } else {
-            rateChart.options.scales.x.min = undefined;
-            rateChart.options.scales.x.max = undefined;
-          }
-          rateChart.data.datasets[0].data = rates.map(p => ({ x: p.t * 1000, y: p.r }));
-          rateChart.update();
-        }
+      function startPolling() {
+        const sec = Math.max(1, Number(elPoll.value) || 2);
+        if (timer) clearInterval(timer);
+        timer = setInterval(loadOnce, sec * 1000);
+      }
 
-        function renderTable(rows) {
-          const latest = rows.slice(0, 50); // show newest 50
-          elBody.innerHTML = latest.map(r => `
-            <tr>
-              <td>${r.ts ?? ''}</td>
-              <td>${r.muon_count ?? ''}</td>
-              <td>${r.adc_v ?? ''}</td>
-              <td>${r.temp_adc_v ?? ''}</td>
-              <td>${r.dt ?? ''}</td>
-              <td>${r.coincidence ? 'true' : 'false'}</td>
-            </tr>
-          `).join('');
-        }
-
-        async function loadOnce() {
-          const windowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
-          // Fetch a generous number of points; filter client-side by time window.
-          const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=20000`);
-          if (!res.ok) throw new Error('Failed to fetch samples');
-          const data = await res.json(); // newest-first
-          // Keep only samples within the selected window for table display
-          const nowMs = Date.now();
-          const sinceMs = nowMs - windowSec * 1000;
-          const inWindow = data.filter(r => {
-            if (!r.ts) return false;
-            const tms = new Date(r.ts).getTime();
-            return isFinite(tms) && tms >= sinceMs;
-          });
-          renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
-          const rates = computeRates(data, windowSec);
-          if (rates.length) {
-            elRate.textContent = rates[rates.length - 1].r.toFixed(2);
-          } else {
-            elRate.textContent = '–';
-          }
-          updateChart(rates);
-        }
-
-        function startPolling() {
-          const sec = Math.max(1, Number(elPoll.value) || 2);
-          if (timer) clearInterval(timer);
-          timer = setInterval(loadOnce, sec * 1000);
-        }
-
-        elReload.addEventListener('click', () => {
-          loadOnce().catch(console.error);
-        });
-
-        // Kickoff
+      elReload.addEventListener('click', () => {
         loadOnce().catch(console.error);
-        startPolling();
-        elPoll.addEventListener('change', startPolling);
+      });
 
-        // Refresh immediately when the selected time window changes
-        elWindow.addEventListener('change', () => {
-          loadOnce().catch(console.error);
-        });
+      // Kickoff
+      loadOnce().catch(console.error);
+      startPolling();
+      elPoll.addEventListener('change', startPolling);
 
-        // Live status (current values) via WebSocket
-        const statusKvBody = document.getElementById('statusKvBody');
-        const elStatusUpdated = document.getElementById('statusUpdated');
-        let currentStatus = null;
+      // Refresh immediately when the selected time window changes
+      elWindow.addEventListener('change', () => {
+        loadOnce().catch(console.error);
+      });
 
-        function escapeHtml(s) {
-          return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+      // Live status (current values) via WebSocket
+      const statusKvBody = document.getElementById('statusKvBody');
+      const elStatusUpdated = document.getElementById('statusUpdated');
+      let currentStatus = null;
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+      }
+
+      function renderStatusKV() {
+        if (!currentStatus) return;
+        const entries = Object.entries(currentStatus).filter(([k,_]) => !String(k).startsWith('_'));
+        entries.sort(([a],[b]) => a.localeCompare(b));
+        statusKvBody.innerHTML = entries.map(([k,v]) => {
+          let val = v;
+          if (typeof v === 'object' && v !== null) val = JSON.stringify(v);
+          return `<tr><th scope="row">${escapeHtml(k)}</th><td><code>${escapeHtml(val)}</code></td></tr>`;
+        }).join('');
+      }
+      try {
+        const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            const topic = msg.topic || '';
+            if (topic === `status/${deviceId}`) {
+              const payload = msg.payload;
+              currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
+              if (elStatusUpdated) elStatusUpdated.textContent = new Date().toISOString();
+              renderStatusKV();
+            }
+          } catch {}
+        };
+      } catch {}
+
+      // Periodic refresh (every 30 seconds) to re-render latest values
+      setInterval(renderStatusKV, 30000);
+
+      // Threshold control
+      const elThr = document.getElementById('thresholdInput');
+      const elThrBtn = document.getElementById('sendThreshold');
+      const elThrStatus = document.getElementById('thresholdStatus');
+
+      async function sendThreshold() {
+        elThrStatus.textContent = '';
+        const raw = elThr.value.trim();
+        if (!raw) {
+          elThrStatus.textContent = 'Enter a value';
+          return;
         }
-
-        function renderStatusKV() {
-          if (!currentStatus) return;
-          const entries = Object.entries(currentStatus).filter(([k,_]) => !String(k).startsWith('_'));
-          entries.sort(([a],[b]) => a.localeCompare(b));
-          statusKvBody.innerHTML = entries.map(([k,v]) => {
-            let val = v;
-            if (typeof v === 'object' && v !== null) val = JSON.stringify(v);
-            return `<tr><th scope="row">${escapeHtml(k)}</th><td><code>${escapeHtml(val)}</code></td></tr>`;
-          }).join('');
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 0 || n > 4095) {
+          elThrStatus.textContent = 'Must be integer 0–4095';
+          return;
         }
         try {
-          const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-          const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
-          ws.onmessage = (ev) => {
-            try {
-              const msg = JSON.parse(ev.data);
-              const topic = msg.topic || '';
-              if (topic === `status/${deviceId}`) {
-                const payload = msg.payload;
-                currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
-                if (elStatusUpdated) elStatusUpdated.textContent = new Date().toISOString();
-                renderStatusKV();
-              }
-            } catch {}
-          };
-        } catch {}
-
-        // Periodic refresh (every 30 seconds) to re-render latest values
-        setInterval(renderStatusKV, 30000);
-
-        // Threshold control
-        const elThr = document.getElementById('thresholdInput');
-        const elThrBtn = document.getElementById('sendThreshold');
-        const elThrStatus = document.getElementById('thresholdStatus');
-
-        async function sendThreshold() {
-          elThrStatus.textContent = '';
-          const raw = elThr.value.trim();
-          if (!raw) {
-            elThrStatus.textContent = 'Enter a value';
-            return;
+          const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ threshold: n })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            elThrStatus.textContent = data.error || 'Failed to send';
+          } else {
+            elThrStatus.textContent = 'Sent';
           }
-          const n = Number(raw);
-          if (!Number.isInteger(n) || n < 0 || n > 4095) {
-            elThrStatus.textContent = 'Must be integer 0–4095';
-            return;
-          }
-          try {
-            const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ threshold: n })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || data.ok === false) {
-              elThrStatus.textContent = data.error || 'Failed to send';
-            } else {
-              elThrStatus.textContent = 'Sent';
-            }
-          } catch (e) {
-            elThrStatus.textContent = 'Network error';
-          }
+        } catch (e) {
+          elThrStatus.textContent = 'Network error';
         }
+      }
 
-        elThrBtn.addEventListener('click', sendThreshold);
-      </script>
-    {% endblock %}
-  </body>
-</html>
+      elThrBtn.addEventListener('click', sendThreshold);
+    </script>
+{% endblock %}

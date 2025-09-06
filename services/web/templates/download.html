@@ -1,45 +1,45 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Download Data – Device {{ device_id }}</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    {% block styles %}
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
-      ul { padding-left: 1.2rem; }
-      a { text-decoration: none; }
-      input { padding: .4rem .5rem; border: 1px solid #bbb; border-radius: 6px; }
-      .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-      button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1b; color: white; cursor: pointer; }
-    </style>
-    {% endblock %}
-  </head>
-  <body>
-    {% block content %}
-    <a href="{{ url_for('device_detail', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:1rem;">← Back to Device</a>
-    <h2>Download CSV – Device {{ device_id }}</h2>
-    <h3>Quick links</h3>
-    <ul>
-      <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 10k rows)</a></li>
-      <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start={{ today_iso|default('') }}">From today</a></li>
-      <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start=2025-01-01T00:00:00Z">From Jan 1, 2025</a></li>
-    </ul>
-    <h3>Custom range</h3>
-    <div class="row" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-      <label>Start (ISO8601 or epoch):
-        <input id="start" placeholder="2025-08-01T00:00:00Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
-      </label>
-      <label>End:
-        <input id="end" placeholder="2025-09-02T23:59:59Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
-      </label>
-      <button id="go" class="btn" style="padding:.5rem .7rem;">Get CSV</button>
-    </div>
-    {% endblock %}
-    {% block scripts %}
-    <script>
-      document.getElementById('go').addEventListener('click', () => {
-        const s = document.getElementById('start').value.trim();
+{% extends "base.html" %}
+{% block title %}Download Data – Device {{ device_id }}{% endblock %}
+{% block style %}
+ul { padding-left: 1.2rem; }
+a { text-decoration: none; }
+input { padding: .4rem .5rem; border: 1px solid #bbb; border-radius: 6px; }
+.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1b; color: white; cursor: pointer; }
+{% endblock %}
+{% block content %}
+<a href="{{ url_for('device_detail', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:1rem;">← Back to Device</a>
+<h2>Download CSV – Device {{ device_id }}</h2>
+<h3>Quick links</h3>
+<ul>
+  <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 10k rows)</a></li>
+  <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start={{ today_iso|default('') }}">From today</a></li>
+  <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start=2025-01-01T00:00:00Z">From Jan 1, 2025</a></li>
+</ul>
+<h3>Custom range</h3>
+<div class="row" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+  <label>Start (ISO8601 or epoch):
+    <input id="start" placeholder="2025-08-01T00:00:00Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
+  </label>
+  <label>End:
+    <input id="end" placeholder="2025-09-02T23:59:59Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
+  </label>
+  <button id="go" class="btn" style="padding:.5rem .7rem;">Get CSV</button>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('go').addEventListener('click', () => {
+    const s = document.getElementById('start').value.trim();
+    const e = document.getElementById('end').value.trim();
+    const params = new URLSearchParams();
+    if (s) params.set('start', s);
+    if (e) params.set('end', e);
+    const url = `/api/export/{{ device_id }}.csv` + (params.toString() ? `?${params}` : '');
+    window.location.href = url;
+  });
+</script>
+{% endblock %}
         const e = document.getElementById('end').value.trim();
         const params = new URLSearchParams();
         if (s) params.set('start', s);

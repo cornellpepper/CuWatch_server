@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <title>{% block title %}CuWatch{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
       :root {
         --carnelian: #b31b1b;
@@ -71,30 +73,23 @@
         margin-bottom: .5rem;
         font-weight: 500;
       }
-      /* Utility classes */
-      .btn {
-        display: inline-block;
-        background: var(--carnelian);
-        color: var(--white);
-        border: none;
-        border-radius: 6px;
-        padding: .5rem 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        text-decoration: none;
-        transition: background 0.15s;
-      }
-      .btn:hover {
-        background: var(--accent);
-        color: var(--white);
-      }
       /* Responsive */
       @media (max-width: 600px) {
         main { padding: 1rem; }
         header { flex-direction: column; align-items: flex-start; gap: .5rem; }
       }
-      {% block style %}{% endblock %}
+      /* Cornell branding for Bootstrap buttons */
+      .btn-carnelian, .btn-carnelian:visited {
+        background-color: var(--carnelian) !important;
+        color: var(--white) !important;
+        border: none;
+      }
+      .btn-carnelian:hover, .btn-carnelian:focus {
+        background-color: var(--accent) !important;
+        color: var(--white) !important;
+      }
     </style>
+    {% block style %}{% endblock %}
     {% block head %}{% endblock %}
   </head>
   <body>
@@ -113,12 +108,17 @@
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for category, message in messages %}
-            <div class="flash">{{ message }}</div>
+            <div class="flash alert alert-danger">{{ message }}</div>
           {% endfor %}
         {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+    {% block scripts %}{% endblock %}
+    <!-- Bootstrap JS (optional, for dropdowns etc.) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>
     {% block scripts %}{% endblock %}
   </body>
 </html>
