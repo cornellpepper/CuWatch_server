@@ -31,8 +31,23 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
   <a href="{{ url_for('download_page', device_id=device_id) }}" class="btn">Download CSVs</a>
 </nav>
 <h2>CuWatch Node {{ device_id }}</h2>
+<div class="row" style="margin-top: 1rem;">
+  <div class="card">
+    <h3 class="card-title">Current Status</h3>
+    <div class="small mb-2">Last update: <span id="statusUpdated">never</span></div>
+    <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width: 220px;">Key</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody id="statusKvBody"></tbody>
+    </table>
+  </div>
+</div>
 <div class="row">
-  <div class="card grid2">
+  <div class="card">
     <div>
       <h3>Live Rate (events/s)</h3>
       <div class="stat"><span id="rate">–</span></div>
@@ -55,19 +70,6 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       <div class="chart-container">
         <canvas id="plot"></canvas>
       </div>
-    </div>
-    <div>
-      <h3 class="card-title">Current Status</h3>
-      <div class="small mb-2">Last update: <span id="statusUpdated">never</span></div>
-      <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
-        <thead class="table-light">
-          <tr>
-            <th style="width: 220px;">Key</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody id="statusKvBody"></tbody>
-      </table>
     </div>
   </div>
 </div>
@@ -330,7 +332,5 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       elThrBtn.addEventListener('click', sendThreshold);
-    </script>
-{% endblock %}
     </script>
 {% endblock %}
