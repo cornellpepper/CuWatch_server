@@ -119,6 +119,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       const elReload = document.getElementById('reload');
 
       let timer = null;
+      let inFlight = false;
+      let backoffMs = 0; // grows on errors, reset on success
 
       // Initialize Chart.js line chart
       const rateChart = new Chart(elPlot.getContext('2d'), {
@@ -234,33 +236,65 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       async function loadOnce() {
+        if (inFlight) return;
+        inFlight = true;
         const windowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
-        // Fetch a generous number of points; filter client-side by time window.
-        const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=20000`);
-        if (!res.ok) throw new Error('Failed to fetch samples');
-        const data = await res.json(); // newest-first
-        // Keep only samples within the selected window for table display
-        const nowMs = Date.now();
-        const sinceMs = nowMs - windowSec * 1000;
-        const inWindow = data.filter(r => {
-          if (!r.ts) return false;
-          const tms = new Date(r.ts).getTime();
-          return isFinite(tms) && tms >= sinceMs;
-        });
-        renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
-        const rates = computeRates(data, windowSec);
-        if (rates.length) {
-          elRate.textContent = rates[rates.length - 1].r.toFixed(2);
-        } else {
+
+        // Heuristic: limit fetch size to keep CPU/mem bounded. Assume ≤5 Hz worst case.
+        const estMaxRate = 5; // events/sec upper bound
+        const limit = Math.min(5000, Math.max(500, Math.ceil(windowSec * estMaxRate)));
+
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        try {
+          const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=${limit}&_ts=${Date.now()}`, { signal: controller.signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json(); // newest-first
+
+          // Keep only samples within the selected window for table display
+          const nowMs = Date.now();
+          const sinceMs = nowMs - windowSec * 1000;
+          const inWindow = data.filter(r => {
+            if (!r.ts) return false;
+            const tms = new Date(r.ts).getTime();
+            return isFinite(tms) && tms >= sinceMs;
+          });
+          renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
+
+          const rates = computeRates(data, windowSec);
+          if (rates.length) {
+            elRate.textContent = rates[rates.length - 1].r.toFixed(2);
+          } else {
+            elRate.textContent = '–';
+          }
+          updateChart(rates);
+
+          // success -> reset backoff
+          backoffMs = 0;
+        } catch (e) {
+          console.error('loadOnce error', e);
+          // nudge UI to show stale
           elRate.textContent = '–';
+          // increase backoff up to 30s and schedule a one-off retry
+          backoffMs = Math.min(30000, (backoffMs || 2000) * 2);
+          setTimeout(() => {
+            // only retry if we are not already polling (avoid stampede)
+            if (!inFlight) loadOnce().catch(() => {});
+          }, backoffMs);
+        } finally {
+          clearTimeout(t);
+          inFlight = false;
         }
-        updateChart(rates);
       }
 
       function startPolling() {
         const sec = Math.max(1, Number(elPoll.value) || 2);
         if (timer) clearInterval(timer);
-        timer = setInterval(loadOnce, sec * 1000);
+        timer = setInterval(() => {
+          // if a previous load is still running, skip this tick
+          if (!inFlight) loadOnce().catch(() => {});
+        }, sec * 1000);
       }
 
       elReload.addEventListener('click', () => {
@@ -275,6 +309,20 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       // Refresh immediately when the selected time window changes
       elWindow.addEventListener('change', () => {
         loadOnce().catch(console.error);
+      });
+
+      // Pause polling when the tab is hidden to avoid browser throttling; resume when visible
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          if (timer) {
+            clearInterval(timer);
+            timer = null;
+          }
+        } else {
+          // on return, do an immediate refresh and restart polling
+          loadOnce().catch(() => {});
+          startPolling();
+        }
       });
 
       // Live status (current values) via WebSocket
