@@ -51,7 +51,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
     <div>
       <h3>Live Rate (events/s)</h3>
       <div class="stat"><span id="rate">–</span></div>
-      <div class="small">Computed using per-event <code>dt</code> (ms) over the selected time window; falls back to timestamp deltas if needed.</div>
+      <div class="small">Computed using absolute timestamps (<code>ts</code>) over the selected time window.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
           <input type="number" id="pollSec" min="1" value="2">
@@ -166,8 +166,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           if (!r || r.muon_count == null || !r.ts) continue;
           const tSec = new Date(r.ts).getTime() / 1000; // seconds
           if (!isFinite(tSec) || tSec < YEAR2000) continue;
-          const dtSec = (r.dt != null && isFinite(Number(r.dt))) ? Math.max(0, Number(r.dt)) / 1000 : null; // ms -> s
-          asc.push({ t: tSec, c: Number(r.muon_count), dt: dtSec });
+          asc.push({ t: tSec, c: Number(r.muon_count) });
         }
         // sort ascending by time in case backend returns mixed order
         asc.sort((a,b) => a.t - b.t);
@@ -175,31 +174,20 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 
         const rates = [];
         let j = 0;
-        let sumDtSec = 0; // sum of per-event dt across (j..i]
 
         for (let i = 0; i < asc.length; i++) {
           const ti = asc[i].t;
-          if (i > 0 && asc[i].dt != null && isFinite(asc[i].dt)) {
-            sumDtSec += asc[i].dt;
-          }
           // maintain time window using timestamps
-          while (j < i && (ti - asc[j].t) > windowSec) {
-            const leavingIdx = j + 1; // interval removed is (j -> j+1)
-            if (leavingIdx <= i && asc[leavingIdx].dt != null && isFinite(asc[leavingIdx].dt)) {
-              sumDtSec -= asc[leavingIdx].dt;
-            }
-            j++;
-          }
+          while (j < i && (ti - asc[j].t) > windowSec) j++;
           if (j === i) continue; // need at least one interval in window
 
-          // Prefer precise elapsed time from summed dt; fallback to timestamp delta
-          let elapsed = sumDtSec;
-          if (!(elapsed > 0)) elapsed = ti - asc[j].t;
+          const elapsed = ti - asc[j].t;
+          if (!(elapsed > 0)) continue; // avoid div-by-zero or identical timestamps
 
           let dc = asc[i].c - asc[j].c;
           if (dc < 0) dc = 0; // guard counter wrap/rollover
 
-          const r = dc > 0 && elapsed > 0 ? dc / elapsed : 0;
+          const r = dc > 0 ? dc / elapsed : 0;
           if (isFinite(r)) rates.push({ t: ti, r });
         }
         return rates;

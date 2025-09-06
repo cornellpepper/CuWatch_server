@@ -179,6 +179,7 @@ def on_message(client, userdata, msg):
                 # Compute absolute timestamp if only a relative dt is provided
                 dt_ms = None
                 try:
+                    # dt (ms) is now optional; prefer absolute timestamp `ts` when present
                     dt_ms = to_int("dt", payload)
                 except ValueError:
                     dt_ms = None
@@ -215,6 +216,14 @@ def on_message(client, userdata, msg):
                 if abs_ts is None:
                     abs_ts = now
 
+                # Build row; make `dt` optional with a safe default (0)
+                safe_dt = 0
+                try:
+                    if "dt" in payload:
+                        safe_dt = int(payload.get("dt"))
+                except Exception:
+                    safe_dt = 0
+
                 row = {
                     "device_id": device_id,
                     "ts": abs_ts,
@@ -222,7 +231,7 @@ def on_message(client, userdata, msg):
                     "muon_count": to_int("muon_count", payload),
                     "adc_v": to_int("adc_v", payload),
                     "temp_adc_v": to_int("temp_adc_v", payload),
-                    "dt": to_int("dt", payload),
+                    "dt": safe_dt,
                     "wait_cnt": to_int("wait_cnt", payload),
                     "coincidence": to_bool("coincidence", payload),
                 }
