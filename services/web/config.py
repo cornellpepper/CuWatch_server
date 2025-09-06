@@ -8,3 +8,5 @@ class Config:
     # Optional auth
     MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
     MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
+    TEMPLATES_AUTO_RELOAD = True
+    SEND_FILE_MAX_AGE_DEFAULT = 0  # disable caching for static files (dev)

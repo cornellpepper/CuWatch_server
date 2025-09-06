@@ -19,7 +19,7 @@ def login_required(view_func):
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-
+    app.jinja_env.auto_reload = True
     # Ensure SECRET_KEY for session cookies
     if not app.config.get("SECRET_KEY"):
         # Fallback for development; set in Config for production

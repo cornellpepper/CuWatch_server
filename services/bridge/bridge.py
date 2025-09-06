@@ -183,6 +183,25 @@ def on_message(client, userdata, msg):
                 except ValueError:
                     dt_ms = None
 
+                # Compute instantaneous rate (Hz) from dt in milliseconds and update 
+                # EMA in device meta
+                inst_rate_hz = None
+                if dt_ms is not None and dt_ms > 0:
+                    inst_rate_hz = 1000.0 / float(dt_ms)
+
+                # Store metrics in device meta (no schema change required)
+                metrics = (current_meta.get("metrics") or {})
+                if inst_rate_hz is not None:
+                    alpha = 0.2  # smoothing factor for EMA
+                    prev_ema = metrics.get("ema_rate_hz")
+                    if isinstance(prev_ema, (int, float)):
+                        ema = alpha * inst_rate_hz + (1.0 - alpha) * float(prev_ema)
+                    else:
+                        ema = inst_rate_hz
+                    metrics["inst_rate_hz"] = round(inst_rate_hz, 3)
+                    metrics["ema_rate_hz"] = round(ema, 3)
+                    current_meta["metrics"] = metrics
+
                 if abs_ts is None and dt_ms is not None:
                     base_iso = (current_meta.get("current_run") or {}).get("base_ts")
                     if base_iso:

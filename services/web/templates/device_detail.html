@@ -37,7 +37,7 @@
   <body>
     <header>
       <a href="{{ url_for('device_select') }}">← Devices</a>
-      <h1>Device {{ device_id }}</h1>
+      <h1>CuWatch Node {{ device_id }}</h1>
       <a href="{{ url_for('download_page', device_id=device_id) }}">Download CSVs</a>
       <a href="{{ url_for('logout') }}">Logout</a>
     </header>
@@ -47,13 +47,19 @@
         <div>
           <h3>Live Rate (events/s)</h3>
           <div class="stat"><span id="rate">–</span></div>
-          <div class="small">Computed from muon_count deltas over time.</div>
+          <div class="small">Computed from muon_count deltas over the selected time window.</div>
           <div class="controls" style="margin-top:.5rem">
             <label>Poll (s)
               <input type="number" id="pollSec" min="1" value="2">
             </label>
-            <label>Points
-              <input type="number" id="points" min="50" max="20000" value="1000">
+            <label>Window
+              <select id="windowSel">
+                <option value="300">5 min</option>
+                <option value="1800" selected>30 min</option>
+                <option value="3600">1 hour</option>
+                <option value="7200">2 hours</option>
+                <option value="21600">6 hours</option>
+              </select>
             </label>
             <button id="reload">Reload</button>
           </div>
@@ -117,7 +123,7 @@
       const elPlot = document.getElementById('plot');
       const elBody = document.getElementById('tbody');
       const elPoll = document.getElementById('pollSec');
-      const elPoints = document.getElementById('points');
+      const elWindow = document.getElementById('windowSel');
       const elReload = document.getElementById('reload');
 
       let timer = null;
@@ -157,28 +163,29 @@
         }
       });
 
-      function computeRates(rows) {
+      function computeRates(rows, windowSec) {
         // rows are newest-first from /api; reverse to time-ascending
         const YEAR2000 = 946684800; // seconds since epoch
         const asc = [];
         for (const r of [...rows].reverse()) {
           if (!r || r.muon_count == null || !r.ts) continue;
-          const t = new Date(r.ts).getTime() / 1000;
-          if (!isFinite(t) || t < YEAR2000) continue; // drop bogus 1970/invalid
+          const t = new Date(r.ts).getTime() / 1000; // seconds
+          if (!isFinite(t) || t < YEAR2000) continue;
           asc.push({ t, c: Number(r.muon_count) });
         }
-        const times = asc.map(p => p.t); // seconds
-        const counts = asc.map(p => p.c);
+        if (asc.length < 2) return [];
         const rates = [];
-        const win = 8; // boxcar window size (points)
-        if (asc.length <= win) return rates;
-        for (let i = win; i < asc.length; i++) {
-          const dt = times[i] - times[i - win];
-          let dc = counts[i] - counts[i - win];
-          if (dc < 0) dc = 0; // guard against counter resets
+        let j = 0;
+        for (let i = 0; i < asc.length; i++) {
+          const ti = asc[i].t;
+          // advance j to maintain windowSec
+          while (j < i && (ti - asc[j].t) > windowSec) j++;
+          if (j === i) continue;
+          const dt = asc[i].t - asc[j].t;
+          let dc = asc[i].c - asc[j].c;
+          if (dc < 0) dc = 0; // guard counter wrap
           if (dt > 0 && isFinite(dc / dt)) {
-            // align rate to the right edge of the window (time at i)
-            rates.push({ t: times[i], r: dc / dt });
+            rates.push({ t: ti, r: dc / dt });
           }
         }
         return rates;
@@ -205,14 +212,23 @@
       }
 
       async function loadOnce() {
-        const limit = Math.max(50, Math.min(20000, Number(elPoints.value) || 1000));
-        const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=${limit}`);
+        const windowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
+        // Fetch a generous number of points; filter client-side by time window.
+        const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=20000`);
         if (!res.ok) throw new Error('Failed to fetch samples');
         const data = await res.json(); // newest-first
-        renderTable(data);
-        const rates = computeRates(data);
+        // Keep only samples within the selected window for table display
+        const nowMs = Date.now();
+        const sinceMs = nowMs - windowSec * 1000;
+        const inWindow = data.filter(r => {
+          if (!r.ts) return false;
+          const tms = new Date(r.ts).getTime();
+          return isFinite(tms) && tms >= sinceMs;
+        });
+        renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
+        const rates = computeRates(data, windowSec);
         if (rates.length) {
-          elRate.textContent = rates[rates.length-1].r.toFixed(2);
+          elRate.textContent = rates[rates.length - 1].r.toFixed(2);
         } else {
           elRate.textContent = '–';
         }
@@ -233,6 +249,11 @@
       loadOnce().catch(console.error);
       startPolling();
       elPoll.addEventListener('change', startPolling);
+
+      // Refresh immediately when the selected time window changes
+      elWindow.addEventListener('change', () => {
+        loadOnce().catch(console.error);
+      });
 
       // Live status (current values) via WebSocket
       const statusKvBody = document.getElementById('statusKvBody');
