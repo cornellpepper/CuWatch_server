@@ -1,4 +1,4 @@
-# CuWatch Server implementation (v7)
+# CuWatch Server implementation
 
 The Pepper board sends events to this server, which displays the data, makes it available for download, and is used to control the Pepper boards.
 
@@ -14,6 +14,7 @@ Telemetry stored as typed columns; dashboard shows a **rolling event rate (Hz)**
 ### Expected telemetry payload (JSON)
 
 The bridge prefers an absolute timestamp field `ts` on every telemetry message. A legacy `timestamp` or `end_time` is also accepted. If you cannot send an absolute timestamp, you may include a relative `dt` (milliseconds) and announce a run base time once (see below).
+
 ```json
 {
   "device_number": 3,
@@ -26,15 +27,19 @@ The bridge prefers an absolute timestamp field `ts` on every telemetry message. 
   "coincidence": true
 }
 ```
+
 Notes:
+
 - Timestamp key: prefer `ts`. `timestamp` and `end_time` are also accepted.
 - Timestamp formats: ISO8601/RFC3339 (with optional `Z`) or epoch seconds/milliseconds.
 - `dt` is now optional. If omitted or invalid, the bridge stores `0` for `dt`.
 
 Optional run base announcement (to support relative-only devices):
+
 ```json
 { "run_start_ts": "2025-08-27T14:00:00Z" }
 ```
+
 Accepted keys are `run_base_ts`, `run_start_ts`, or `run_start` (ISO8601/epoch). When a subsequent telemetry message only has `dt`, the bridge computes `ts = base + dt`.
 
 ## Services
@@ -117,11 +122,25 @@ mosquitto_pub -h localhost -t telemetry/dev-001 -m '{
 - `GET /api/export/<device_id>.csv?start=&end=` — CSV export.
   - Ordering: `ts ASC, muon_count ASC`.
   - Columns: `device_id,ts,device_number,muon_count,adc_v,temp_adc_v,dt,wait_cnt,coincidence` (`dt` may be `0`).
+- `POST /api/control/<device_id>` — publish a control message for a device.
+  - Auth: requires login.
+  - Publishes JSON to MQTT topic `control/<device_id>/set` with QoS 1 and retain=true.
+  - Content-Type: `application/json`.
+  - Accepted payloads:
+    - `{ "threshold": <int 0..4095> }` — sets the discriminator threshold.
+    - `"shutdown"` — request a clean shutdown.
+    - `"new_run"` — request starting a new run (device chooses semantics).
+    - `{ "make_leader": true|false }` — request leader election state.
+  - Responses:
+    - `200 { "ok": true }` on publish accept.
+    - `400` with `{ "ok": false, "error": "..." }` for bad input (e.g., invalid threshold).
 
 ## Database (tables)
+
 - `devices(id, last_seen, online, device_number, meta)`
 - `samples(id, device_id, ts, device_number, muon_count, adc_v, temp_adc_v, dt, wait_cnt, coincidence)`
 - `runs(id, device_id, base_ts, run_key, meta)`
 
 ## Authentication
+
 The UI has a simple login. Set `LOGIN_USER` and `LOGIN_PASSWORD` in the web service environment to enable fixed credentials; otherwise any non-empty username is accepted for development.
