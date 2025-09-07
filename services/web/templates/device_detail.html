@@ -23,6 +23,13 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 #statusKv thead th { position: static; }
 #statusKv tbody { display: table-row-group; max-height: none; overflow: visible; }
 #statusKv thead, #statusKv tbody tr { display: table-row; width: auto; table-layout: auto; }
+/* Controls table layout: two columns, not scrollable or sticky */
+#ctrlTbl { width: 100%; border-collapse: collapse; }
+#ctrlTbl thead, #ctrlTbl tbody tr { display: table-row; width: auto; table-layout: auto; }
+#ctrlTbl tbody { display: table-row-group; max-height: none; overflow: visible; }
+#ctrlTbl th, #ctrlTbl td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
+#ctrlTbl th { text-align: right; background: transparent; position: static; width: 220px; white-space: nowrap; }
+#ctrlTbl td > * { margin-right: .5rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -76,30 +83,44 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 <div class="row" style="margin-top: 1rem;">
   <div class="card">
     <h3>Controls</h3>
-    <div class="controls">
-      <label>Threshold (0–4095)
-        <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
-      </label>
-      <button id="sendThreshold" class="btn">Send</button>
-      <span id="thresholdStatus" class="small"></span>
-    </div>
-    <div class="controls" style="margin-top:.5rem;">
-      <button id="sendShutdown" class="btn" style="background:#b31b1b">Shutdown</button>
-      <span id="shutdownStatus" class="small"></span>
-      <button id="sendNewRun" class="btn" style="margin-left:.5rem;">New Run</button>
-      <span id="newRunStatus" class="small"></span>
-    </div>
-    <div class="controls" style="margin-top:.5rem;">
-      <label>Make leader
-        <select id="makeLeaderSel">
-          <option value="true">true</option>
-          <option value="false" selected>false</option>
-        </select>
-      </label>
-      <button id="sendMakeLeader" class="btn">Send</button>
-      <span id="makeLeaderStatus" class="small"></span>
-    </div>
-    <div class="small">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (retained).</div>
+    <table id="ctrlTbl">
+      <tbody>
+        <tr>
+          <th>Threshold (0–4095)</th>
+          <td>
+            <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
+            <button id="sendThreshold" class="btn">Send</button>
+            <span id="thresholdStatus" class="small"></span>
+          </td>
+        </tr>
+        <tr>
+          <th>Shutdown</th>
+          <td>
+            <button id="sendShutdown" class="btn" style="background:#b31b1b">Shutdown</button>
+            <span id="shutdownStatus" class="small"></span>
+          </td>
+        </tr>
+        <tr>
+          <th>New Run</th>
+          <td>
+            <button id="sendNewRun" class="btn">New Run</button>
+            <span id="newRunStatus" class="small"></span>
+          </td>
+        </tr>
+        <tr>
+          <th>Make leader</th>
+          <td>
+            <select id="makeLeaderSel">
+              <option value="true">true</option>
+              <option value="false" selected>false</option>
+            </select>
+            <button id="sendMakeLeader" class="btn">Send</button>
+            <span id="makeLeaderStatus" class="small"></span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (retained).</div>
   </div>
 </div>
 <div class="row" style="margin-top: 1rem;">
