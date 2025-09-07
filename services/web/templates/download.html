@@ -14,31 +14,112 @@ button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1
 <h2>Download CSV – Device {{ device_id }}</h2>
 <h3>Quick links</h3>
 <ul>
-  <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 10k rows)</a></li>
+  <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 50k rows)</a></li>
   <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start={{ today_iso|default('') }}">From today</a></li>
   <li><a href="{{ url_for('export_csv', device_id=device_id) }}?start=2025-01-01T00:00:00Z">From Jan 1, 2025</a></li>
 </ul>
 <h3>Custom range</h3>
 <div class="row" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-  <label>Start (ISO8601 or epoch):
-    <input id="start" placeholder="2025-08-01T00:00:00Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
+  <label>Filter:
+    <input id="filter" placeholder="2025-09-02 or muon_count" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
   </label>
-  <label>End:
-    <input id="end" placeholder="2025-09-02T23:59:59Z" style="padding:.4rem .5rem; border:1px solid #bbb; border-radius:6px;">
+  <label>Start event:
+    <select id="startEv"></select>
   </label>
+  <label>End event:
+    <select id="endEv"></select>
+  </label>
+  <button id="reload" class="btn" style="background:var(--gray200);color:var(--black);">Reload events</button>
   <button id="go" class="btn" style="padding:.5rem .7rem;">Get CSV</button>
+  <span id="status" class="small" style="opacity:.7"></span>
+  
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+  const startSel = document.getElementById('startEv');
+  const endSel = document.getElementById('endEv');
+  const statusEl = document.getElementById('status');
+  const reloadBtn = document.getElementById('reload');
+  const filterInput = document.getElementById('filter');
+
+  // Keep a copy of the loaded events for filtering
+  let pointsData = [];
+
+  function option(label, value) {
+    const o = document.createElement('option');
+    o.textContent = label;
+    o.value = value;
+    return o;
+  }
+
+  function renderPoints(list) {
+    const prevS = startSel.value;
+    const prevE = endSel.value;
+    startSel.innerHTML = '';
+    endSel.innerHTML = '';
+    startSel.appendChild(option('(none)', ''));
+    endSel.appendChild(option('(none)', ''));
+    for (const p of list) {
+      const lbl = `${p.ts}  (muon_count ${p.c})`;
+      const val = p.ts;
+      startSel.appendChild(option(lbl, val));
+      endSel.appendChild(option(lbl, val));
+    }
+    // Try to restore previous selections if still present
+    if (prevS) startSel.value = prevS;
+    if (prevE) endSel.value = prevE;
+  }
+
+  function applyFilter() {
+    const q = filterInput.value.trim();
+    if (!q) { renderPoints(pointsData); return; }
+    const lower = q.toLowerCase();
+    const filtered = pointsData.filter(p => p.ts.toLowerCase().includes(lower) || String(p.c).includes(lower));
+    renderPoints(filtered);
+  }
+
+  async function loadEvents() {
+    statusEl.textContent = 'Loading…';
+    // Fetch up to 50k newest samples, then sort ascending so start<=end
+    const res = await fetch(`/api/samples/{{ device_id }}?limit=50000&_=${Date.now()}`);
+    if (!res.ok) { statusEl.textContent = 'Failed to load'; return; }
+    const rows = await res.json(); // newest-first
+    // Normalize and sort by ts asc, tie-break muon_count asc
+    pointsData = rows
+      .filter(r => r && r.ts)
+      .map(r => ({ ts: r.ts, t: new Date(r.ts).getTime(), c: Number(r.muon_count ?? 0) }))
+      .filter(p => isFinite(p.t))
+      .sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
+    renderPoints(pointsData);
+    // Preselect sensible defaults: start = earliest today if present; end = latest
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayStartIso = new Date(todayStart.getTime() - todayStart.getTimezoneOffset()*60000).toISOString().slice(0,19) + 'Z';
+      // Find first index >= todayStart
+      let si = 1; // skip (none)
+      for (let i = 0; i < pointsData.length; i++) { if (pointsData[i].ts >= todayStartIso) { si = i + 1; break; } }
+      if (startSel.options[si]) startSel.selectedIndex = si;
+      if (endSel.options[endSel.options.length - 1]) endSel.selectedIndex = endSel.options.length - 1;
+    } catch {}
+    statusEl.textContent = `${pointsData.length} events loaded`;
+    applyFilter();
+  }
+
+  reloadBtn.addEventListener('click', () => { loadEvents().catch(() => statusEl.textContent = 'Failed to load'); });
+  filterInput.addEventListener('input', applyFilter);
   document.getElementById('go').addEventListener('click', () => {
-    const s = document.getElementById('start').value.trim();
-    const e = document.getElementById('end').value.trim();
+    const s = startSel.value;
+    const e = endSel.value;
     const params = new URLSearchParams();
     if (s) params.set('start', s);
     if (e) params.set('end', e);
     const url = `/api/export/{{ device_id }}.csv` + (params.toString() ? `?${params}` : '');
     window.location.href = url;
   });
+
+  // Initial load
+  loadEvents().catch(() => { statusEl.textContent = 'Failed to load'; });
 </script>
 {% endblock %}
