@@ -109,15 +109,18 @@ const rateUnit = document.getElementById('rateUnit');
 function computeRateSeries(rows, windowSec, unit) {
   if (!rows || rows.length < 2) return { t: [], y: [] };
   const YEAR2000 = 946684800; // seconds since epoch
-  const ts = [];
-  const cnt = [];
+  // Normalize and sort by time; use muon_count as a tie-breaker
+  const points = [];
   for (const r of rows) {
     if (!r || r.muon_count == null || !r.ts) continue;
     const t = new Date(r.ts).getTime() / 1000;
     if (!isFinite(t) || t < YEAR2000) continue; // ignore bogus 1970/invalid
-    ts.push(t);
-    cnt.push(Number(r.muon_count));
+    points.push({ t, c: Number(r.muon_count) });
   }
+  points.sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
+  if (points.length < 2) return { t: [], y: [] };
+  const ts = points.map(p => p.t);
+  const cnt = points.map(p => p.c);
   const factor = (unit === 'per_min') ? 60 : 1; // convert to events/min if selected
 
   // Sliding window using two pointers

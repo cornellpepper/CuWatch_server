@@ -168,8 +168,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           if (!isFinite(tSec) || tSec < YEAR2000) continue;
           asc.push({ t: tSec, c: Number(r.muon_count) });
         }
-        // sort ascending by time in case backend returns mixed order
-        asc.sort((a,b) => a.t - b.t);
+        // sort ascending by time; break ties with muon_count
+        asc.sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
         if (asc.length < 2) return [];
 
         const rates = [];
@@ -238,19 +238,30 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         try {
           const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=${limit}&_ts=${Date.now()}`, { signal: controller.signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json(); // newest-first
+          const data = await res.json(); // newest-first (by ts)
+
+          // For deterministic ordering when multiple rows share the same timestamp,
+          // sort by ts desc, then muon_count desc as a tie-breaker.
+          const sorted = [...data].sort((a, b) => {
+            const ta = a && a.ts ? new Date(a.ts).getTime() : 0;
+            const tb = b && b.ts ? new Date(b.ts).getTime() : 0;
+            if (ta !== tb) return tb - ta; // newer first
+            const ca = (a && a.muon_count != null) ? Number(a.muon_count) : -Infinity;
+            const cb = (b && b.muon_count != null) ? Number(b.muon_count) : -Infinity;
+            return cb - ca; // higher count first
+          });
 
           // Keep only samples within the selected window for table display
           const nowMs = Date.now();
           const sinceMs = nowMs - windowSec * 1000;
-          const inWindow = data.filter(r => {
+          const inWindow = sorted.filter(r => {
             if (!r.ts) return false;
             const tms = new Date(r.ts).getTime();
             return isFinite(tms) && tms >= sinceMs;
           });
-          renderTable(inWindow.length ? inWindow : data.slice(0, 50)); // fallback if empty
+          renderTable(inWindow.length ? inWindow : sorted.slice(0, 50)); // fallback if empty
 
-          const rates = computeRates(data, windowSec);
+          const rates = computeRates(sorted, windowSec);
           if (rates.length) {
             elRate.textContent = rates[rates.length - 1].r.toFixed(2);
           } else {

@@ -167,7 +167,8 @@ def create_app():
             q = q.filter(Sample.ts >= start)
         if end:
             q = q.filter(Sample.ts <= end)
-        q = q.order_by(Sample.ts.desc()).limit(limit)
+        # Deterministic ordering: ts desc, then muon_count desc as tie-breaker
+        q = q.order_by(Sample.ts.desc(), Sample.muon_count.desc()).limit(limit)
         rows = q.all()
 
         return jsonify([{
@@ -203,7 +204,8 @@ def create_app():
             q = q.filter(Sample.ts >= start)
         if end:
             q = q.filter(Sample.ts <= end)
-        q = q.order_by(Sample.ts.asc())
+        # Deterministic ordering for export: ts asc, then muon_count asc
+        q = q.order_by(Sample.ts.asc(), Sample.muon_count.asc())
 
         if not start and not end:
             q = q.limit(10000)
