@@ -10,7 +10,8 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: iot
-    ports: ["5432:5432"]
+    ports:
+      - "127.0.0.1:5432:5432"  # Only bind to localhost
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d iot"]
       interval: 3s
@@ -19,6 +20,21 @@ services:
 
   web:
     build: ./services/web
+    develop:
+      watch:
+        # Restart web on Python changes
+        - action: sync+restart
+          path: ./services/web
+          target: /app
+          patterns:
+            - "**/*.py"
+            - "**/*.pyi"
+        # Sync templates without restart (Flask/Jinja auto-reloads)
+        - action: sync
+          path: ./services/web/templates
+          target: /app/templates
+          patterns:
+            - "**/*.html"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db/iot
       MQTT_BROKER_URL: mqtt-broker
