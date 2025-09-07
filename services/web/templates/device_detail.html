@@ -63,7 +63,6 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
             <option value="1800" selected>30 min</option>
             <option value="3600">1 hour</option>
             <option value="7200">2 hours</option>
-            <option value="21600">6 hours</option>
           </select>
         </label>
         <button id="reload" class="btn" style="padding:.3rem .8rem;">Reload</button>
@@ -84,7 +83,23 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       <button id="sendThreshold" class="btn">Send</button>
       <span id="thresholdStatus" class="small"></span>
     </div>
-    <div class="small">Sends JSON to MQTT topic <code>control/{{ device_id }}/set</code>.</div>
+    <div class="controls" style="margin-top:.5rem;">
+      <button id="sendShutdown" class="btn" style="background:#b31b1b">Shutdown</button>
+      <span id="shutdownStatus" class="small"></span>
+      <button id="sendNewRun" class="btn" style="margin-left:.5rem;">New Run</button>
+      <span id="newRunStatus" class="small"></span>
+    </div>
+    <div class="controls" style="margin-top:.5rem;">
+      <label>Make leader
+        <select id="makeLeaderSel">
+          <option value="true">true</option>
+          <option value="false" selected>false</option>
+        </select>
+      </label>
+      <button id="sendMakeLeader" class="btn">Send</button>
+      <span id="makeLeaderStatus" class="small"></span>
+    </div>
+    <div class="small">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (retained).</div>
   </div>
 </div>
 <div class="row" style="margin-top: 1rem;">
@@ -368,6 +383,13 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       const elThr = document.getElementById('thresholdInput');
       const elThrBtn = document.getElementById('sendThreshold');
       const elThrStatus = document.getElementById('thresholdStatus');
+      const elShutdownBtn = document.getElementById('sendShutdown');
+      const elShutdownStatus = document.getElementById('shutdownStatus');
+      const elNewRunBtn = document.getElementById('sendNewRun');
+      const elNewRunStatus = document.getElementById('newRunStatus');
+      const elMakeLeaderSel = document.getElementById('makeLeaderSel');
+      const elMakeLeaderBtn = document.getElementById('sendMakeLeader');
+      const elMakeLeaderStatus = document.getElementById('makeLeaderStatus');
 
       async function sendThreshold() {
         elThrStatus.textContent = '';
@@ -399,5 +421,40 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       elThrBtn.addEventListener('click', sendThreshold);
+
+      async function sendJsonPayload(payload, statusEl) {
+        try {
+          statusEl.textContent = '';
+          const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            statusEl.textContent = (data && data.error) ? data.error : 'Failed to send';
+          } else {
+            statusEl.textContent = 'Sent';
+          }
+        } catch (e) {
+          statusEl.textContent = 'Network error';
+        }
+      }
+
+      elShutdownBtn.addEventListener('click', () => {
+        // Send a JSON string: "shutdown"
+        sendJsonPayload("shutdown", elShutdownStatus);
+      });
+
+      elNewRunBtn.addEventListener('click', () => {
+        // Send a JSON string: "new_run"
+        sendJsonPayload("new_run", elNewRunStatus);
+      });
+
+      elMakeLeaderBtn.addEventListener('click', () => {
+        const val = String(elMakeLeaderSel.value).toLowerCase() === 'true';
+        // Send an object: { make_leader: true/false }
+        sendJsonPayload({ make_leader: val }, elMakeLeaderStatus);
+      });
     </script>
 {% endblock %}
