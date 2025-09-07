@@ -96,6 +96,12 @@ def create_app():
         today_iso = today_start.isoformat().replace('+00:00', 'Z')
         return render_template('download.html', device_id=device_id, today_iso=today_iso)
 
+    @app.get('/device/<device_id>/runs')
+    @login_required
+    def device_runs_page(device_id):
+        # Simple page that lists known runs (base_ts, run_key, meta) for this device
+        return render_template('device_runs.html', device_id=device_id)
+
     @app.route('/api/devices')
     def devices():
         rows = Device.query.order_by(Device.id).all()
@@ -145,7 +151,8 @@ def create_app():
         # Optional query params: ?limit=1000&start=...&end=...
         limit = request.args.get('limit', default='500')
         try:
-            limit = max(1, min(20000, int(limit)))
+            # Allow up to 50k rows for JSON samples to support the event picker
+            limit = max(1, min(50000, int(limit)))
         except Exception:
             limit = 500
 
@@ -208,7 +215,7 @@ def create_app():
         q = q.order_by(Sample.ts.asc(), Sample.muon_count.asc())
 
         if not start and not end:
-            q = q.limit(10000)
+            q = q.limit(50000)
 
         def gen():
             yield "device_id,ts,device_number,muon_count,adc_v,temp_adc_v,dt,wait_cnt,coincidence\n"
