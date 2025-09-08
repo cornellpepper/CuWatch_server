@@ -284,14 +284,18 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         // Fetch enough data to fully cover the selected window.
         // Assume ≤2 Hz typical upper bound with margin; cap at API limit (50k).
         const estMaxRate = 2; // events/sec upper bound
-        const limit = Math.min(50000, Math.max(1000, Math.ceil(windowSec * estMaxRate * 1.5)));
+        // Add a small padding before the window start so we can interpolate
+        // the left boundary for an exact-width window without going empty.
+        const padSec = Math.min(1800, Math.max(60, Math.round(windowSec * 0.1))); // 1min..30min, ~10%
+        const fetchSpan = windowSec + padSec;
+        const limit = Math.min(50000, Math.max(1000, Math.ceil(fetchSpan * estMaxRate * 1.5)));
 
         const controller = new AbortController();
         const t = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
         try {
           const nowMs = Date.now();
-          const startIso = new Date(nowMs - windowSec * 1000).toISOString();
+          const startIso = new Date(nowMs - fetchSpan * 1000).toISOString();
           const res = await fetch(`/api/samples/${encodeURIComponent(deviceId)}?limit=${limit}&start=${encodeURIComponent(startIso)}&_ts=${Date.now()}`, { signal: controller.signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json(); // newest-first (by ts)
