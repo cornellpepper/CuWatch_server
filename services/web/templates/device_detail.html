@@ -120,7 +120,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         </tr>
       </tbody>
     </table>
-    <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (retained).</div>
+    <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (non‑retained commands).</div>
   </div>
 </div>
 <div class="row" style="margin-top: 1rem;">
@@ -443,6 +443,13 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 
       elThrBtn.addEventListener('click', sendThreshold);
 
+      function withCmdId(obj) {
+        try {
+          return Object.assign({_cmd_id: Date.now()}, obj);
+        } catch {
+          return {_cmd_id: Date.now()};
+        }
+      }
       async function sendJsonPayload(payload, statusEl) {
         try {
           statusEl.textContent = '';
@@ -463,19 +470,19 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       elShutdownBtn.addEventListener('click', () => {
-        // Send a JSON string: "shutdown"
-        sendJsonPayload("shutdown", elShutdownStatus);
+        // Send an object and include a transient command id for de-duplication
+        sendJsonPayload(withCmdId({ shutdown: true }), elShutdownStatus);
       });
 
       elNewRunBtn.addEventListener('click', () => {
-        // Send a JSON string: "new_run"
-        sendJsonPayload("new_run", elNewRunStatus);
+        // Send an object and include a transient command id for de-duplication
+        sendJsonPayload(withCmdId({ new_run: true }), elNewRunStatus);
       });
 
       elMakeLeaderBtn.addEventListener('click', () => {
         const val = String(elMakeLeaderSel.value).toLowerCase() === 'true';
-        // Send an object: { make_leader: true/false }
-        sendJsonPayload({ make_leader: val }, elMakeLeaderStatus);
+        // Send an object and include a transient command id for de-duplication
+        sendJsonPayload(withCmdId({ make_leader: val }), elMakeLeaderStatus);
       });
     </script>
 {% endblock %}
