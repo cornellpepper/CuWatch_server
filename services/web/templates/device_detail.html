@@ -30,6 +30,11 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 #ctrlTbl th, #ctrlTbl td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; }
 #ctrlTbl th { text-align: right; background: transparent; position: static; width: 220px; white-space: nowrap; }
 #ctrlTbl td > * { margin-right: .5rem; }
+/* Outlined button wrapper for control actions */
+.btn-box { display: inline-block; border: 1px solid #bbb; border-radius: 6px; padding: 4px; background: #fff; }
+.btn-box .btn { background: transparent; color: var(--black); border: none; padding: .35rem .8rem; }
+.btn-box .btn:hover { background: var(--gray200); }
+.btn-box .btn.danger { color: var(--carnelian); }
 </style>
 {% endblock %}
 {% block content %}
@@ -96,14 +101,14 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         <tr>
           <th>Shutdown</th>
           <td>
-            <button id="sendShutdown" class="btn" style="background:#b31b1b">Shutdown</button>
+            <span class="btn-box"><button id="sendShutdown" class="btn danger">Shutdown</button></span>
             <span id="shutdownStatus" class="small"></span>
           </td>
         </tr>
         <tr>
           <th>New Run</th>
           <td>
-            <button id="sendNewRun" class="btn">New Run</button>
+            <span class="btn-box"><button id="sendNewRun" class="btn">New Run</button></span>
             <span id="newRunStatus" class="small"></span>
           </td>
         </tr>
@@ -209,22 +214,33 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         asc.sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
         if (asc.length < 2) return [];
 
+        // Exact-width sliding window using left-boundary interpolation.
+        // For each point at time ti, compute rate over [ti - windowSec, ti].
+        // Skip outputs until we have a full window of history to eliminate the edge spike.
         const rates = [];
-        let j = 0;
-
+        let l = 0; // left pointer (last point with t <= tLeft)
         for (let i = 0; i < asc.length; i++) {
           const ti = asc[i].t;
-          // maintain time window using timestamps
-          while (j < i && (ti - asc[j].t) > windowSec) j++;
-          if (j === i) continue; // need at least one interval in window
+          const tLeft = ti - windowSec;
+          // Advance left pointer to the last point with t <= tLeft
+          while (l + 1 < asc.length && asc[l + 1].t <= tLeft) l++;
+          if (tLeft < asc[0].t) continue; // not enough history for a full window
+          if (l >= i) continue; // need at least one interval before i
 
-          const elapsed = ti - asc[j].t;
-          if (!(elapsed > 0)) continue; // avoid div-by-zero or identical timestamps
+          // Interpolate cumulative count at tLeft between asc[l] and asc[l+1] (if available)
+          const tL = asc[l].t, cL = asc[l].c;
+          let cLeft = cL;
+          if (l + 1 <= i) {
+            const tR = asc[l + 1].t, cR = asc[l + 1].c;
+            if (tR > tL && tLeft > tL) {
+              const f = (tLeft - tL) / (tR - tL);
+              cLeft = cL + f * (cR - cL);
+            }
+          }
 
-          let dc = asc[i].c - asc[j].c;
-          if (dc < 0) dc = 0; // guard counter wrap/rollover
-
-          const r = dc > 0 ? dc / elapsed : 0;
+          let dc = asc[i].c - cLeft;
+          if (dc < 0) dc = 0; // guard counter reset
+          const r = dc / windowSec;
           if (isFinite(r)) rates.push({ t: ti, r });
         }
         return rates;
