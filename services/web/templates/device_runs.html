@@ -30,6 +30,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
           <th style="width: 14rem;">base_ts</th>
           <th style="width: 10rem;">run_key</th>
           <th>meta</th>
+          <th style="width: 8rem;">CSV</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -62,13 +63,25 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
       return;
     }
     status.textContent = `${rows.length} run(s)`;
-    tbody.innerHTML = rows.map(r => {
+    // rows are newest-first (base_ts desc). For each run, end = start of the next newer run.
+    tbody.innerHTML = rows.map((r, idx) => {
       let meta = r.meta;
       if (meta && typeof meta === 'object') meta = JSON.stringify(meta);
+      let localTs = '';
+      try {
+        if (r.base_ts) {
+          const d = new Date(r.base_ts);
+          if (!isNaN(d.getTime())) localTs = d.toLocaleString();
+        }
+      } catch {}
+      const startIso = r.base_ts || '';
+      const endIso = (idx > 0 && rows[idx - 1] && rows[idx - 1].base_ts) ? rows[idx - 1].base_ts : '';
+      const href = `/api/export/${encodeURIComponent(deviceId)}.csv` + (startIso ? `?start=${encodeURIComponent(startIso)}${endIso ? `&end=${encodeURIComponent(endIso)}` : ''}` : '');
       return `<tr>
-        <td><code>${escapeHtml(r.base_ts || '')}</code></td>
+        <td><code>${escapeHtml(localTs)}</code></td>
         <td><code>${escapeHtml(r.run_key || '')}</code></td>
         <td><code>${escapeHtml(meta || '')}</code></td>
+        <td>${startIso ? `<a class="btn" href="${href}">Download</a>` : ''}</td>
       </tr>`;
     }).join('');
   }
@@ -87,4 +100,3 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
   load();
 </script>
 {% endblock %}
-

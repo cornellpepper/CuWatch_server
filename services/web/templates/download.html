@@ -12,6 +12,11 @@ button { padding: .5rem .7rem; border: 0; border-radius: 6px; background: #b31b1
 {% block content %}
 <a href="{{ url_for('device_detail', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:1rem;">← Back to Device</a>
 <h2>Download CSV – Device {{ device_id }}</h2>
+<p class="small" style="margin:.25rem 0 1rem 0;">
+  Looking for per‑run downloads? Use the <a href="{{ url_for('device_runs_page', device_id=device_id) }}">Runs page</a> to export one run at a time.
+  It sets the CSV start at a run's start time and the end at the next run (or the latest data).
+  You can still pick arbitrary ranges below.
+  </p>
 <h3>Quick links</h3>
 <ul>
   <li><a href="{{ url_for('export_csv', device_id=device_id) }}">All data (limited to 50k rows)</a></li>
