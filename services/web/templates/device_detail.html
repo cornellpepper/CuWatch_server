@@ -64,7 +64,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
     <div>
       <h3>Live Rate (Hz)</h3>
       <div class="stat"><span id="rate">–</span></div>
-      <div class="small">Computed using absolute timestamps (<code>ts</code>) over the selected time window.</div>
+      <div class="small">Computed using absolute timestamps (<code>ts</code>) over a fixed 3-minute trailing window.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
           <input type="number" id="pollSec" min="1" value="5">
@@ -279,15 +279,19 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       async function loadOnce() {
         if (inFlight) return;
         inFlight = true;
-        const windowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
+        const chartWindowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
+        const rateWindowSec = 180; // 3-minute boxcar for rate calculations
 
-        // Fetch enough data to fully cover the selected window.
-        // Assume ≤2 Hz typical upper bound with margin; cap at API limit (50k).
+        // Fetch enough data to cover the chart window plus a full rate window of history
+        // so the sliding-window average has the samples it needs. Assume ≤2 Hz typical
+        // upper bound with margin; cap at API limit (50k).
         const estMaxRate = 2; // events/sec upper bound
-        // Add a small padding before the window start so we can interpolate
-        // the left boundary for an exact-width window without going empty.
-        const padSec = Math.min(1800, Math.max(60, Math.round(windowSec * 0.1))); // 1min..30min, ~10%
-        const fetchSpan = windowSec + padSec;
+        const coverageSec = chartWindowSec + rateWindowSec;
+        // Add a small padding before the window start so we can interpolate the left
+        // boundary without going empty due to sparse samples.
+        const padBasisSec = Math.max(chartWindowSec, rateWindowSec);
+        const padSec = Math.min(1800, Math.max(60, Math.round(padBasisSec * 0.1))); // 1min..30min, ~10%
+        const fetchSpan = coverageSec + padSec;
         const limit = Math.min(50000, Math.max(1000, Math.ceil(fetchSpan * estMaxRate * 1.5)));
 
         const controller = new AbortController();
@@ -312,7 +316,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           });
 
           // Keep only samples within the selected window for table display
-          const sinceMs = nowMs - windowSec * 1000;
+          const sinceMs = nowMs - chartWindowSec * 1000;
           const inWindow = sorted.filter(r => {
             if (!r.ts) return false;
             const tms = new Date(r.ts).getTime();
@@ -320,7 +324,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           });
           renderTable(inWindow.length ? inWindow : sorted.slice(0, 50)); // fallback if empty
 
-          const rates = computeRates(sorted, windowSec);
+          const rates = computeRates(sorted, rateWindowSec);
           if (rates.length) { // update the rate display
             elRate.textContent = rates[rates.length - 1].r.toFixed(2);
           } else {
