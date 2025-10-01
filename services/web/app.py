@@ -5,7 +5,7 @@ from config import Config
 from sockets import init_sockets
 from mqtt_publish import publish_control
 from mqtt_subscribe import LiveStream, start_subscriber
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 def login_required(view_func):
@@ -74,9 +74,10 @@ def create_app():
     def device_select():
         rows = Device.query.order_by(Device.id).all()
         # Provide a simple page where a user picks a device
+        now = datetime.now(timezone.utc)
         return render_template('device_select.html', devices=[{
             'id': d.id,
-            'online': d.online,
+            'online': (d.last_seen is not None and (now - d.last_seen) <= timedelta(minutes=5)),
             'device_number': d.device_number,
             'last_seen': d.last_seen.isoformat() if d.last_seen else None
         } for d in rows])
@@ -105,9 +106,10 @@ def create_app():
     @app.route('/api/devices')
     def devices():
         rows = Device.query.order_by(Device.id).all()
+        now = datetime.now(timezone.utc)
         return jsonify([{
             'id': d.id,
-            'online': d.online,
+            'online': (d.last_seen is not None and (now - d.last_seen) <= timedelta(minutes=5)),
             'device_number': d.device_number,
             'last_seen': d.last_seen.isoformat() if d.last_seen else None
         } for d in rows])
@@ -124,10 +126,11 @@ def create_app():
                 meta = _json.loads(meta)
             except Exception:
                 pass
+        now = datetime.now(timezone.utc)
         return jsonify({
             "id": d.id,
             "last_seen": d.last_seen.isoformat() if d.last_seen else None,
-            "online": d.online,
+            'online': (d.last_seen is not None and (now - d.last_seen) <= timedelta(minutes=5)),
             "device_number": d.device_number,
             "meta": meta,
         })
@@ -248,11 +251,11 @@ def create_app():
             except Exception:
                 return jsonify({'ok': False, 'error': 'threshold must be an integer'}), 400
             if thr < 0 or thr > 4095:
-                return jsonify({'ok': False, 'error': 'threshold must be between 0 and 4095'}), 400
+                return jsonify({'ok': False, 'error': 'threshold must be below 4095'}), 400
             # Normalize to int in payload
             payload['threshold'] = thr
 
-        publish_control(device_id, payload)
+        publish_control(device_id, payload, retain=False)
         return jsonify({'ok': True})
 
     @app.get('/healthz')

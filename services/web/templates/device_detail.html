@@ -64,7 +64,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
     <div>
       <h3>Live Rate (Hz)</h3>
       <div class="stat"><span id="rate">–</span></div>
-      <div class="small">Computed using absolute timestamps (<code>ts</code>) over a fixed 3-minute trailing window.</div>
+      <div class="small">Computed using absolute timestamps (<code>ts</code>) over a fixed one-minute trailing window.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
           <input type="number" id="pollSec" min="1" value="5">
@@ -280,7 +280,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         if (inFlight) return;
         inFlight = true;
         const chartWindowSec = Math.max(300, Number(elWindow.value) || 1800); // enforce ≥5 min
-        const rateWindowSec = 180; // 3-minute boxcar for rate calculations
+        const rateWindowSec = 60; // 3-minute boxcar for rate calculations
 
         // Fetch enough data to cover the chart window plus a full rate window of history
         // so the sliding-window average has the samples it needs. Assume ≤2 Hz typical
@@ -416,7 +416,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
             if (topic === `status/${deviceId}`) {
               const payload = msg.payload;
               currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
-              if (elStatusUpdated) elStatusUpdated.textContent = new Date().toISOString();
+              if (elStatusUpdated) elStatusUpdated.textContent = new Date().toLocaleString();
               renderStatusKV();
             }
           } catch {}

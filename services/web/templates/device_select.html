@@ -14,6 +14,10 @@ a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3r
   <h1>Select a Device</h1>
   <a class="logout" href="{{ url_for('logout') }}">Logout</a>
 </div>
+<div class="small" style="color: #666; margin-bottom: 1rem;">
+  Last updated: <span id="last-updated">{{ moment().format('YYYY-MM-DD HH:mm:ss') if moment else 'loading...' }}</span>
+</div>
+<div id="device-list">
 {% if devices|length == 0 %}
   <p>No devices found.</p>
 {% else %}
@@ -31,4 +35,54 @@ a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3r
     {% endfor %}
   </ul>
 {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function refreshDeviceList() {
+  try {
+    const response = await fetch('/api/devices');
+    if (!response.ok) return;
+    
+    const devices = await response.json();
+    const deviceListEl = document.getElementById('device-list');
+    const lastUpdatedEl = document.getElementById('last-updated');
+    
+    // Update timestamp
+    lastUpdatedEl.textContent = new Date().toLocaleString();
+    
+    if (devices.length === 0) {
+      deviceListEl.innerHTML = '<p>No devices found.</p>';
+    } else {
+      const listHtml = devices.map(d => `
+        <li style="margin-bottom:.7rem;">
+          <a href="/device/${encodeURIComponent(d.id)}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:.2rem;">
+            Device ${d.device_number || 'N/A'} – ID ${d.id}
+          </a>
+          <div class="meta" style="color:var(--gray700);font-size:.95rem;">
+            ${d.online ? '🟢 online' : '⚪ offline'}
+            ${d.last_seen ? ` • last seen ${d.last_seen}` : ''}
+          </div>
+        </li>
+      `).join('');
+      deviceListEl.innerHTML = `<ul>${listHtml}</ul>`;
+    }
+  } catch (error) {
+    console.error('Failed to refresh device list:', error);
+  }
+}
+
+// Set initial timestamp
+document.getElementById('last-updated').textContent = new Date().toLocaleString();
+
+// Refresh every 30 seconds
+setInterval(refreshDeviceList, 30000);
+
+// Also refresh when page becomes visible (if user switched tabs)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    refreshDeviceList();
+  }
+});
+</script>
 {% endblock %}
