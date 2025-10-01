@@ -396,6 +396,17 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
       }
 
+      // Update threshold input placeholder and validation when status changes
+      function updateThresholdValidation() {
+        if (currentStatus && currentStatus.reset_threshold != null) {
+          const resetThreshold = Number(currentStatus.reset_threshold);
+          if (isFinite(resetThreshold)) {
+            elThr.placeholder = `e.g. ${Math.max(2048, resetThreshold + 100)} (> ${resetThreshold})`;
+            elThr.min = resetThreshold + 1;
+          }
+        }
+      }
+
       function renderStatusKV() {
         if (!currentStatus) return;
         const entries = Object.entries(currentStatus).filter(([k,_]) => !String(k).startsWith('_'));
@@ -405,6 +416,9 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           if (typeof v === 'object' && v !== null) val = JSON.stringify(v);
           return `<tr><th scope="row">${escapeHtml(k)}</th><td><code>${escapeHtml(val)}</code></td></tr>`;
         }).join('');
+        
+        // Update threshold validation when status changes
+        updateThresholdValidation();
       }
       try {
         const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -450,6 +464,16 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           elThrStatus.textContent = 'Must be integer 0–4095';
           return;
         }
+
+        // Check against reset_threshold from current status if available
+        if (currentStatus && currentStatus.reset_threshold != null) {
+          const resetThreshold = Number(currentStatus.reset_threshold);
+          if (isFinite(resetThreshold) && n <= resetThreshold) {
+            elThrStatus.textContent = `Must be above reset threshold (${resetThreshold})`;
+            return;
+          }
+        }
+
         try {
           const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
             method: 'POST',
