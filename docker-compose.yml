@@ -44,15 +44,15 @@ services:
         condition: service_healthy
       mqtt-broker:
         condition: service_started
-    ports: ["5000:5000"]
+    ports: ["80:80"]
     command: >
       gunicorn
       -k eventlet
       -w 1
-      -b 0.0.0.0:5000
+      -b 0.0.0.0:80
       app:app
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:5000/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost/healthz || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
