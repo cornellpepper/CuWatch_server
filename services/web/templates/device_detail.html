@@ -391,6 +391,10 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       const statusKvBody = document.getElementById('statusKvBody');
       const elStatusUpdated = document.getElementById('statusUpdated');
       let currentStatus = null;
+      let statusWs = null;
+      let statusWsTimer = null;
+      let statusWsBackoff = 0;
+      const STATUS_WS_MAX_BACKOFF = 30000;
 
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
@@ -420,22 +424,63 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         // Update threshold validation when status changes
         updateThresholdValidation();
       }
-      try {
-        const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
-        ws.onmessage = (ev) => {
-          try {
-            const msg = JSON.parse(ev.data);
-            const topic = msg.topic || '';
-            if (topic === `status/${deviceId}`) {
-              const payload = msg.payload;
-              currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
-              if (elStatusUpdated) elStatusUpdated.textContent = new Date().toLocaleString();
-              renderStatusKV();
+      function handleStatusPayload(payload) {
+        currentStatus = (payload && typeof payload === 'object') ? payload : { message: String(payload) };
+        if (elStatusUpdated) elStatusUpdated.textContent = new Date().toLocaleString();
+        renderStatusKV();
+      }
+
+      function scheduleStatusReconnect() {
+        if (statusWsTimer) clearTimeout(statusWsTimer);
+        statusWsBackoff = statusWsBackoff ? Math.min(STATUS_WS_MAX_BACKOFF, statusWsBackoff * 2) : 1000;
+        statusWsTimer = setTimeout(() => {
+          statusWsTimer = null;
+          connectStatusWs();
+        }, statusWsBackoff);
+      }
+
+      function connectStatusWs() {
+        if (statusWs) {
+          try { statusWs.close(); } catch {}
+          statusWs = null;
+        }
+        try {
+          const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+          const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+          statusWs = ws;
+          statusWsBackoff = 0;
+
+          ws.onopen = () => {
+            statusWsBackoff = 0;
+          };
+          ws.onmessage = (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              const topic = msg.topic || '';
+              if (topic === `status/${deviceId}`) {
+                handleStatusPayload(msg.payload);
+              }
+            } catch {}
+          };
+          ws.onclose = () => {
+            if (statusWs === ws) {
+              statusWs = null;
+              scheduleStatusReconnect();
             }
-          } catch {}
-        };
-      } catch {}
+          };
+          ws.onerror = () => {
+            if (statusWs === ws) {
+              try { ws.close(); } catch {}
+              statusWs = null;
+              scheduleStatusReconnect();
+            }
+          };
+        } catch {
+          scheduleStatusReconnect();
+        }
+      }
+
+      connectStatusWs();
 
       // Periodic refresh (every 30 seconds) to re-render latest values
       setInterval(renderStatusKV, 30000);
