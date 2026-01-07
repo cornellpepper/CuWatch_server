@@ -30,7 +30,7 @@ a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3r
             </a>
             <div class="meta" style="color:var(--gray700);font-size:.95rem;">
               {% if d.online %}🟢 online{% else %}⚪ offline{% endif %}
-              {% if d.last_seen %} • last seen {{ d.last_seen }}{% endif %}
+              {% if d.last_seen %}<span class="js-last-seen" data-iso="{{ d.last_seen }}"> • last seen {{ d.last_seen }}</span>{% endif %}
             </div>
           </li>
         {% endfor %}
@@ -45,6 +45,19 @@ a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3r
 {% endblock %}
 {% block scripts %}
 <script>
+// Localize any server-rendered last-seen timestamps on initial paint
+function localizeInitialTimes() {
+  const nodes = document.querySelectorAll('.js-last-seen[data-iso]');
+  nodes.forEach(node => {
+    const iso = node.getAttribute('data-iso');
+    if (!iso) return;
+    const d = new Date(iso);
+    if (!isNaN(d)) {
+      node.textContent = ` • last seen ${d.toLocaleString()}`;
+    }
+  });
+}
+
 async function refreshDeviceList() {
   try {
     const response = await fetch('/api/devices');
@@ -87,6 +100,12 @@ async function refreshDeviceList() {
 
 // Set initial timestamp
 document.getElementById('last-updated').textContent = new Date().toLocaleString();
+
+// Localize server-rendered timestamps immediately
+localizeInitialTimes();
+
+// Kick off an immediate refresh to replace list with fresh data
+refreshDeviceList();
 
 // Refresh every 30 seconds
 setInterval(refreshDeviceList, 30000);
