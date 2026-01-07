@@ -1,0 +1,63 @@
+name: Container Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  hadolint:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile: [services/web/Dockerfile, services/bridge/Dockerfile]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+
+  trivy:
+    name: Trivy Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build web image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: services/web
+          file: services/web/Dockerfile
+          tags: local/web:scan
+          push: false
+          load: true
+
+      - name: Scan web image with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: local/web:scan
+          vuln-type: 'os,library'
+          format: 'table'
+          exit-code: '1'
+
+      - name: Build bridge image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: services/bridge
+          file: services/bridge/Dockerfile
+          tags: local/bridge:scan
+          push: false
+          load: true
+
+      - name: Scan bridge image with Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: local/bridge:scan
+          vuln-type: 'os,library'
+          format: 'table'
+          exit-code: '1'
