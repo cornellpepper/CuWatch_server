@@ -482,8 +482,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 
       connectStatusWs();
 
-      // Periodic refresh (every 30 seconds) to re-render latest values
-      setInterval(renderStatusKV, 30000);
+      // Remove the old 30s interval—it's unnecessary and was causing confusion
+      // renderStatusKV() is now called immediately when status arrives via WebSocket
 
       // Threshold control
       const elThr = document.getElementById('thresholdInput');

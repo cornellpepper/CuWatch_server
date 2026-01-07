@@ -347,7 +347,7 @@ mosquitto_pub -h localhost -t telemetry/dev-001 -m '{
 
 ## Authentication
 
-The UI has a simple login. Set `LOGIN_USER` and `LOGIN_PASSWORD` in the web service environment to enable fixed credentials; otherwise any non-empty username is accepted for development.
+Authentication is disabled in this build: all UI pages and APIs are accessible without login. If you need to restore login enforcement, re-enable the `login_required` checks in [services/web/app.py](services/web/app.py) (the decorator is currently a no-op) and set `LOGIN_USER`/`LOGIN_PASSWORD` in the environment.
 
 ## Production Notes
 

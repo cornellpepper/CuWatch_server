@@ -39,16 +39,42 @@
         margin: 0;
         font-size: 1.5rem;
         letter-spacing: 1px;
+        display: flex;
+        align-items: center;
+        gap: .6rem;
       }
       header nav {
         display: flex;
         gap: 1.5rem;
+      }
+      .logo-img {
+        display: inline-block;
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
       }
       header a, header a:visited {
         color: var(--white);
         text-decoration: none;
         font-weight: 500;
         transition: color 0.15s;
+      }
+      /* Logo mask renders the SVG in white on red header */
+      .logo-mark {
+        display: inline-block;
+        width: 28px;
+        height: 28px;
+        background-color: var(--white);
+        /* WebKit/Blink */
+        -webkit-mask-image: url("{{ url_for('static', filename='logo.svg') }}");
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+        /* Standard */
+        mask-image: url("{{ url_for('static', filename='logo.svg') }}");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain;
       }
       header a:hover {
         color: var(--accent);
@@ -94,14 +120,14 @@
   </head>
   <body>
     <header>
-      <h1>CuWatch</h1>
+      <h1>
+        <a href="{{ url_for('device_select') }}" style="display:flex;align-items:center;gap:.6rem;">
+          <img src="{{ url_for('static', filename='logo_white_on_red.png') }}" alt="CuWatch logo" class="logo-img" />
+          CuWatch
+        </a>
+      </h1>
       <nav>
-        {% if current_user is defined and current_user.is_authenticated %}
-          <a href="{{ url_for('device_select') }}">Devices</a>
-          <a href="{{ url_for('logout') }}">Logout</a>
-        {% else %}
-          <a href="{{ url_for('login') }}">Login</a>
-        {% endif %}
+        <a href="{{ url_for('device_select') }}">Devices</a>
       </nav>
     </header>
     <main>

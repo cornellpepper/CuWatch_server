@@ -9,12 +9,8 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 def login_required(view_func):
-    @wraps(view_func)
-    def wrapped(*args, **kwargs):
-        if not session.get("logged_in"):
-            return redirect(url_for("login", next=request.path))
-        return view_func(*args, **kwargs)
-    return wrapped
+    # Authentication disabled: pass-through decorator
+    return view_func
 
 def create_app():
     app = Flask(__name__)
@@ -34,9 +30,7 @@ def create_app():
 
     @app.route('/')
     def index():
-        if session.get("logged_in"):
-            return redirect(url_for('device_select'))
-        return redirect(url_for('login'))
+        return redirect(url_for('device_select'))
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
