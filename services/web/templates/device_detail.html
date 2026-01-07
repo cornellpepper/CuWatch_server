@@ -42,6 +42,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
   <a href="{{ url_for('device_select') }}" class="btn" style="background:var(--gray200);color:var(--black);">← Devices</a>
   <a href="{{ url_for('download_page', device_id=device_id) }}" class="btn">Download CSVs</a>
   <a href="{{ url_for('device_runs_page', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);">Runs</a>
+  <a href="{{ url_for('device_analyze', device_id=device_id) }}" class="btn" style="background:var(--carnelian);color:white;">Analyze</a>
 </nav>
 <h2>CuWatch Node {{ device_id }}</h2>
 <div class="row" style="margin-top: 1rem;">

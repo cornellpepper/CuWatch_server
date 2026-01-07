@@ -97,6 +97,24 @@ def create_app():
         # Simple page that lists known runs (base_ts, run_key, meta) for this device
         return render_template('device_runs.html', device_id=device_id)
 
+    @app.route('/device/<device_id>/analyze')
+    @login_required
+    def device_analyze(device_id):
+        """Interactive plotting and analysis page for device data"""
+        device = db.session.get(Device, device_id)
+        if not device:
+            from flask import abort
+            abort(404)
+        
+        # Get recent runs for dropdown (limit 50 for performance)
+        runs = db.session.query(Run).filter_by(device_id=device_id)\
+            .order_by(Run.base_ts.desc()).limit(50).all()
+        
+        return render_template('device_analyze.html', 
+                              device=device,
+                              device_id=device_id,
+                              runs=runs)
+
     @app.route('/api/devices')
     def devices():
         rows = Device.query.order_by(Device.id).all()

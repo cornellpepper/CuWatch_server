@@ -60,17 +60,24 @@ async function refreshDeviceList() {
     if (devices.length === 0) {
       deviceListEl.innerHTML = '<p>No devices found.</p>';
     } else {
-      const listHtml = devices.map(d => `
+      const listHtml = devices.map(d => {
+        let lastSeenText = '';
+        if (d.last_seen) {
+          const lastSeenDate = new Date(d.last_seen);
+          lastSeenText = ` • last seen ${lastSeenDate.toLocaleString()}`;
+        }
+        return `
         <li style="margin-bottom:.7rem;">
           <a href="/device/${encodeURIComponent(d.id)}" class="btn" style="background:var(--gray200);color:var(--black);margin-bottom:.2rem;">
             Device ${d.device_number || 'N/A'} – ID ${d.id}
           </a>
           <div class="meta" style="color:var(--gray700);font-size:.95rem;">
             ${d.online ? '🟢 online' : '⚪ offline'}
-            ${d.last_seen ? ` • last seen ${d.last_seen}` : ''}
+            ${lastSeenText}
           </div>
         </li>
-      `).join('');
+      `;
+      }).join('');
       deviceListEl.innerHTML = `<ul>${listHtml}</ul>`;
     }
   } catch (error) {

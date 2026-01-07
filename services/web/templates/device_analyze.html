@@ -1,0 +1,682 @@
+{% extends "base.html" %}
+{% block title %}Analyze {{ device_id }} – CuWatch{% endblock %}
+{% block style %}
+<style>
+.row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
+.card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
+.chart-container { width: 100%; max-width: 100%; overflow-x: auto; }
+canvas { display: block; max-width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 6px; }
+label,input,select,button { font: inherit; }
+input[type="number"] { width: 6rem; }
+.controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.small { color: #555; font-size: .9rem; }
+select[multiple] { min-height: 100px; }
+.stats-box { border: 1px solid #eee; background: #fafafa; border-radius: 6px; padding: .75rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; white-space: pre-wrap; max-height: 300px; overflow: auto; }
+</style>
+{% endblock %}
+{% block content %}
+<nav style="margin-bottom:1rem;">
+  <a href="{{ url_for('device_detail', device_id=device_id) }}" class="btn" style="background:var(--gray200);color:var(--black);">← Device {{ device_id }}</a>
+  <a href="{{ url_for('device_runs_page', device_id=device_id) }}" class="btn">Runs</a>
+  <a href="{{ url_for('download_page', device_id=device_id) }}" class="btn">Download CSVs</a>
+</nav>
+
+<h2>Interactive Analysis: {{ device_id }}</h2>
+
+<div class="row">
+  <div class="card">
+    <h3>Data Selection</h3>
+    <div class="controls">
+      <label>Run:
+        <select id="runSelect" style="min-width: 200px;">
+          <option value="">Latest data (last 1000 points)</option>
+          {% for i in range(runs|length) %}
+          {% set run = runs[i] %}
+          {% set next_run = runs[i-1] if i > 0 else none %}
+          <option value="{{ run.id }}" 
+                  data-base-ts="{{ run.base_ts.isoformat() }}"
+                  {% if next_run %}data-end-ts="{{ next_run.base_ts.isoformat() }}"{% endif %}>
+            {% if run.run_key %}Run {{ run.run_key }}{% else %}Run {{ run.id }}{% endif %} 
+            ({{ run.base_ts.strftime('%Y-%m-%d %H:%M') }})
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      
+      <label>Max points:
+        <input type="number" id="maxPoints" value="1000" min="100" max="50000" step="100">
+      </label>
+      
+      <button id="loadData" class="btn" style="background:var(--carnelian);color:white;">Load Data</button>
+    </div>
+    <p class="small" id="dataStatus" style="margin-top: 0.5rem;">Select options and click "Load Data"</p>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h3>Time Series Plot</h3>
+    <div class="controls">
+      <label>X-axis:
+        <select id="xAxis">
+          <option value="ts">Absolute Time</option>
+          <option value="dt">Relative Time (ms)</option>
+          <option value="index">Sample Index</option>
+        </select>
+      </label>
+      
+      <label style="flex-grow: 1;">Y-axis (multi-select, Ctrl/Cmd+Click):
+        <select id="yAxis" multiple size="5" style="width: 100%; max-width: 300px;">
+          <option value="muon_count" selected>Muon Count</option>
+          <option value="adc_v">ADC Voltage</option>
+          <option value="temp_adc_v">Temperature ADC</option>          
+          <option value="temperature">Temperature (°C)</option>          
+          <option value="wait_cnt">Wait Count</option>
+          <option value="rate">Rate (Hz, rolling avg)</option>
+        </select>
+      </label>
+      
+      <button id="updatePlot" class="btn" style="background:var(--carnelian);color:white;">Update Plot</button>
+      <button id="downloadPlot" class="btn" style="background:var(--gray200);color:var(--black);">Download Image</button>
+    </div>
+    <div class="chart-container" style="margin-top: 1rem;">
+      <canvas id="timeSeriesChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h3>Histogram</h3>
+    <div class="controls">
+      <label>Field:
+        <select id="histField">
+          <option value="muon_count">Muon Count</option>
+          <option value="adc_v">ADC Voltage</option>
+          <option value="temp_adc_v">Temperature ADC</option>
+          <option value="temperature">Temperature (°C)</option>          
+          <option value="wait_cnt">Wait Count</option>
+          <option value="rate">Rate (Hz, rolling avg)</option>
+        </select>
+      </label>
+      
+      <label>Number of bins:
+        <input type="number" id="numBins" value="20" min="5" max="100" step="5">
+      </label>
+      
+      <label style="display: flex; align-items: center; gap: 0.3rem;">
+        <input type="checkbox" id="coincidenceOnly">
+        Compare coincidence
+      </label>
+      
+      <button id="updateHist" class="btn" style="background:var(--carnelian);color:white;">Update Histogram</button>
+    </div>
+    <div class="chart-container" style="margin-top: 1rem;">
+      <div id="histogramChart" style="height: 250px;"></div>
+    </div>
+    <div id="histStats" class="stats-box" style="margin-top: 0.5rem;">No histogram data</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h3>Statistics</h3>
+    <div id="statsDisplay" class="stats-box">No data loaded</div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+<script>
+const deviceId = "{{ device_id }}";
+const deviceLabel = "{{ device.device_number if device and device.device_number is not none else device_id }}";
+
+// DOM elements
+const elRunSelect = document.getElementById('runSelect');
+const elMaxPoints = document.getElementById('maxPoints');
+const elLoadData = document.getElementById('loadData');
+const elDataStatus = document.getElementById('dataStatus');
+const elXAxis = document.getElementById('xAxis');
+const elYAxis = document.getElementById('yAxis');
+const elUpdatePlot = document.getElementById('updatePlot');
+const elHistField = document.getElementById('histField');
+const elNumBins = document.getElementById('numBins');
+const elCoincidenceOnly = document.getElementById('coincidenceOnly');
+const elUpdateHist = document.getElementById('updateHist');
+const elStatsDisplay = document.getElementById('statsDisplay');
+const elHistStats = document.getElementById('histStats');
+
+// Global state
+let lastLoadedSamples = null;
+let timeSeriesChart = null;
+
+// Initialize charts
+function initCharts() {
+  // Time series chart
+  const tsCtx = document.getElementById('timeSeriesChart').getContext('2d');
+  timeSeriesChart = new Chart(tsCtx, {
+    type: 'line',
+    data: { datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { mode: 'index' },
+        decimation: { enabled: true, algorithm: 'lttb', samples: 500 }
+      },
+      scales: {
+        x: { 
+          type: 'linear',
+          title: { display: true, text: 'Time' }
+        },
+        y: {
+          type: 'linear',
+          title: { display: true, text: 'Value' }
+        }
+      }
+    }
+  });
+}
+
+// Load data from API
+async function loadData() {
+  const runId = elRunSelect.value;
+  const maxPoints = parseInt(elMaxPoints.value) || 1000;
+  
+  elDataStatus.textContent = 'Loading data...';
+  elLoadData.disabled = true;
+  
+  try {
+    // Build API query following /api/samples/<id> pattern
+    let url = `/api/samples/${encodeURIComponent(deviceId)}?limit=${maxPoints}`;
+    
+    // If run selected, filter by base_ts using start parameter and end at next run
+    if (runId) {
+      const selectedOpt = elRunSelect.querySelector(`option[value="${runId}"]`);
+      const baseTs = selectedOpt?.dataset.baseTs;
+      const endTs = selectedOpt?.dataset.endTs;
+      if (baseTs) {
+        url += `&start=${encodeURIComponent(baseTs)}`;
+      }
+      if (endTs) {
+        url += `&end=${encodeURIComponent(endTs)}`;
+      }
+    }
+    
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const samples = await res.json();
+    
+    if (!samples.length) {
+      elDataStatus.textContent = 'No data found for selected run';
+      lastLoadedSamples = null;
+      return;
+    }
+    
+    // API returns ts DESC, muon_count DESC; reverse for plotting
+    samples.reverse();
+    lastLoadedSamples = samples;
+    
+    elDataStatus.textContent = `Loaded ${samples.length} samples`;
+    
+    // Auto-update plots after loading
+    try {
+      updateTimeSeries();
+      updateHistogram();
+    } catch (err) {
+      console.error('Error updating plots:', err);
+      elDataStatus.textContent += ` (plots updated with warnings - see console)`;
+    }
+    
+  } catch (err) {
+    console.error(err);
+    elDataStatus.textContent = `Error: ${err.message}`;
+    lastLoadedSamples = null;
+  } finally {
+    elLoadData.disabled = false;
+  }
+}
+
+// Compute statistics for a dataset
+function computeStats(data, field) {
+  if (!data.length) return null;
+  const values = data.map(d => d[field]).filter(v => v != null && isFinite(v));
+  if (!values.length) return null;
+  
+  const sorted = [...values].sort((a, b) => a - b);
+  const sum = values.reduce((a, b) => a + b, 0);
+  const mean = sum / values.length;
+  const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+  
+  return {
+    count: values.length,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    mean: mean,
+    median: sorted[Math.floor(sorted.length / 2)],
+    stddev: Math.sqrt(variance)
+  };
+}
+
+// Format statistics for display
+function formatStats(statsMap) {
+  let output = '';
+  for (const [field, stats] of Object.entries(statsMap)) {
+    if (!stats) continue;
+    output += `${field}:\n`;
+    output += `  Count:  ${stats.count}\n`;
+    output += `  Min:    ${stats.min.toFixed(2)}\n`;
+    output += `  Max:    ${stats.max.toFixed(2)}\n`;
+    output += `  Mean:   ${stats.mean.toFixed(2)}\n`;
+    output += `  Median: ${stats.median.toFixed(2)}\n`;
+    output += `  StdDev: ${stats.stddev.toFixed(2)}\n\n`;
+  }
+  return output || 'No statistics available';
+}
+
+// Update time series plot
+function updateTimeSeries() {
+  if (!lastLoadedSamples || !lastLoadedSamples.length) {
+    elDataStatus.textContent = 'Load data first';
+    return;
+  }
+  
+  const samples = lastLoadedSamples;
+  const xAxisType = elXAxis.value;
+  const yFields = Array.from(elYAxis.selectedOptions).map(opt => opt.value);
+  
+  if (!yFields.length) {
+    elDataStatus.textContent = 'Select at least one Y-axis variable';
+    return;
+  }
+  
+  // Compute X values based on selection
+  let xValues;
+  let xLabel;
+  let xScaleConfig;
+  
+  if (xAxisType === 'ts') {
+    xValues = samples.map(s => new Date(s.ts).getTime()); // milliseconds as number
+    xLabel = 'Timestamp';
+    xScaleConfig = {
+      type: 'time',
+      time: { 
+        displayFormats: { 
+          millisecond: 'HH:mm:ss.SSS',
+          second: 'HH:mm:ss',
+          minute: 'HH:mm',
+          hour: 'HH:mm'
+        }
+      },
+      title: { display: true, text: xLabel }
+    };
+  } else if (xAxisType === 'dt') {
+    xValues = samples.map(s => s.dt || 0);
+    xLabel = 'Relative Time (ms)';
+    xScaleConfig = {
+      type: 'linear',
+      title: { display: true, text: xLabel }
+    };
+  } else { // index
+    xValues = samples.map((_, i) => i);
+    xLabel = 'Sample Index';
+    xScaleConfig = {
+      type: 'linear',
+      title: { display: true, text: xLabel }
+    };
+  }
+  
+  // Update scale configuration
+  timeSeriesChart.options.scales.x = xScaleConfig;
+  
+  // Build datasets
+  const datasets = [];
+  const statsMap = {};
+  const colors = [
+    'rgb(179, 27, 27)',      // carnelian
+    'rgb(31, 78, 121)',      // maritime blue
+    'rgb(245, 130, 32)',     // orange
+    'rgb(114, 98, 164)',     // purple
+    'rgb(0, 128, 128)'       // teal
+  ];
+
+  const pointRadius = samples.length > 500 ? 0 : 1;
+  let yMin = Number.POSITIVE_INFINITY;
+  let yMax = Number.NEGATIVE_INFINITY;
+  
+  for (const [idx, field] of yFields.entries()) {
+    let yValues;
+    let label = field;
+    
+    if (field === 'rate') {
+      // Prefer ts-based delta; fallback to dt when available
+      const instantRates = samples.map((s, idx) => {
+        if (idx > 0 && s.ts && samples[idx - 1]?.ts) {
+          const currTs = new Date(s.ts).getTime();
+          const prevTs = new Date(samples[idx - 1].ts).getTime();
+          const deltaMs = currTs - prevTs;
+          if (deltaMs > 0) return 1000.0 / deltaMs;
+        }
+        const dtVal = Number(s.dt);
+        if (dtVal > 0) return 1000.0 / dtVal;
+        return null;
+      });
+      
+      // Apply rolling average (30 samples) to smooth discrete timestamp precision
+      const window = 30;
+      yValues = instantRates.map((rate, idx) => {
+        const start = Math.max(0, idx - window + 1);
+        const windowRates = instantRates.slice(start, idx + 1).filter(r => r !== null);
+        if (windowRates.length === 0) return null;
+        return windowRates.reduce((a, b) => a + b, 0) / windowRates.length;
+      });
+      label = 'Rate (Hz, rolling avg)';
+    } else if (field === 'temperature') {
+      // Convert temp_adc_v to celsius: (adc*3.3/(2**16)-0.5)/0.01
+      yValues = samples.map(s => {
+        const adcVal = Number(s.temp_adc_v);
+        if (adcVal === null || adcVal === undefined || !isFinite(adcVal)) return null;
+        return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
+      });
+      label = 'Temperature (°C)';
+    } else {
+      yValues = samples.map(s => {
+        const v = s[field];
+        return (v === null || v === undefined) ? null : Number(v);
+      });
+    }
+    
+    const dataPoints = xValues.map((x, i) => ({ x, y: yValues[i] }));
+    dataPoints.forEach(p => {
+      if (p.y != null && isFinite(p.y)) {
+        yMin = Math.min(yMin, p.y);
+        yMax = Math.max(yMax, p.y);
+      }
+    });
+
+    datasets.push({
+      label: label,
+      data: dataPoints,
+      borderColor: colors[idx % colors.length],
+      backgroundColor: colors[idx % colors.length] + '33', // 20% opacity
+      borderWidth: 1,
+      pointRadius: pointRadius,
+      pointHoverRadius: pointRadius ? 4 : 0,
+      spanGaps: true
+    });
+    
+    // Compute stats
+    if (field === 'rate') {
+      statsMap[label] = computeStats(yValues.map(v => ({ rate: v })), 'rate');
+    } else {
+      statsMap[label] = computeStats(samples, field);
+    }
+  }
+  
+  timeSeriesChart.data.datasets = datasets;
+
+  // Update y scale bounds if we have valid data
+  if (isFinite(yMin) && isFinite(yMax)) {
+    const padding = (yMax - yMin) * 0.05 || 0.1;
+    timeSeriesChart.options.scales.y = {
+      type: 'linear',
+      title: { display: true, text: 'Value' },
+      suggestedMin: yMin - padding,
+      suggestedMax: yMax + padding,
+      ticks: { beginAtZero: false }
+    };
+  } else {
+    timeSeriesChart.options.scales.y = {
+      type: 'linear',
+      title: { display: true, text: 'Value' },
+      ticks: { beginAtZero: false }
+    };
+  }
+
+  timeSeriesChart.update();
+  
+  elStatsDisplay.textContent = formatStats(statsMap);
+}
+
+// Compute histogram bins
+function computeHistogram(values, numBins = 20) {
+  const filtered = values.filter(v => v != null && isFinite(v));
+  if (!filtered.length) return { bins: [], counts: [], binWidth: 0, min: 0, max: 0 };
+  
+  const min = Math.min(...filtered);
+  const max = Math.max(...filtered);
+  const binWidth = (max - min) / numBins || 1;
+  
+  const bins = Array.from({ length: numBins }, (_, i) => min + i * binWidth);
+  const counts = new Array(numBins).fill(0);
+  
+  filtered.forEach(v => {
+    let binIndex = Math.floor((v - min) / binWidth);
+    if (binIndex === numBins) binIndex--; // Max value falls in last bin
+    if (binIndex >= 0 && binIndex < numBins) counts[binIndex]++;
+  });
+  
+  return { bins, counts, binWidth, min, max };
+}
+
+// Update histogram
+function updateHistogram() {
+  if (!lastLoadedSamples || !lastLoadedSamples.length) {
+    elDataStatus.textContent = 'Load data first';
+    return;
+  }
+  
+  const samples = lastLoadedSamples;
+  const field = elHistField.value;
+  const numBins = parseInt(elNumBins.value) || 20;
+  const compareCoincidence = elCoincidenceOnly.checked;
+  
+  let label = field;
+  
+  // Helper to extract values from samples
+  const extractValues = (sampleSet) => {
+    let vals;
+    if (field === 'rate') {
+      const instantRates = sampleSet.map((s, idx) => {
+        if (idx > 0 && s.ts && sampleSet[idx - 1]?.ts) {
+          const currTs = new Date(s.ts).getTime();
+          const prevTs = new Date(sampleSet[idx - 1].ts).getTime();
+          const deltaMs = currTs - prevTs;
+          if (deltaMs > 0) return 1000.0 / deltaMs;
+        }
+        const dtVal = Number(s.dt);
+        if (dtVal > 0) return 1000.0 / dtVal;
+        return null;
+      });
+      
+      // Apply rolling average (30 samples) to smooth discrete timestamp precision
+      const window = 30;
+      vals = instantRates.map((rate, idx) => {
+        const start = Math.max(0, idx - window + 1);
+        const windowRates = instantRates.slice(start, idx + 1).filter(r => r !== null);
+        if (windowRates.length === 0) return null;
+        return windowRates.reduce((a, b) => a + b, 0) / windowRates.length;
+      });
+      label = 'Rate (Hz)';
+    } else if (field === 'temperature') {
+      // Convert temp_adc_v to celsius: (adc*3.3/(2**16)-0.5)/0.01
+      vals = sampleSet.map(s => {
+        const adcVal = Number(s.temp_adc_v);
+        if (adcVal === null || adcVal === undefined || !isFinite(adcVal)) return null;
+        return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
+      });
+      label = 'Temperature (°C)';
+    } else {
+      vals = sampleSet.map(s => s[field]);
+    }
+    return vals.filter(v => v != null && isFinite(v));
+  };
+  
+  const allValues = extractValues(samples);
+  
+  if (!allValues.length) {
+    elDataStatus.textContent = 'No valid data for histogram';
+    return;
+  }
+  
+  // Build traces
+  const traces = [];
+  let coincidenceValues = null;
+  
+  if (compareCoincidence) {
+    // Show two overlaid histograms
+    const coincidenceSamples = samples.filter(s => s.coincidence === true);
+    coincidenceValues = extractValues(coincidenceSamples);
+    
+    if (coincidenceValues.length === 0) {
+      elDataStatus.textContent = 'No coincidence events found';
+      return;
+    }
+    
+    // All data trace (semi-transparent)
+    traces.push({
+      x: allValues,
+      type: 'histogram',
+      nbinsx: numBins,
+      name: 'All events',
+      opacity: 0.5,
+      marker: {
+        color: 'rgba(100, 100, 100, 0.5)',
+        line: { width: 0 }
+      }
+    });
+    
+    // Coincidence-only trace
+    traces.push({
+      x: coincidenceValues,
+      type: 'histogram',
+      nbinsx: numBins,
+      name: 'Coincidence',
+      opacity: 0.7,
+      marker: {
+        color: 'rgba(179, 27, 27, 0.7)',
+        line: { width: 0 }
+      }
+    });
+  } else {
+    // Single histogram of all data
+    traces.push({
+      x: allValues,
+      type: 'histogram',
+      nbinsx: numBins,
+      name: label,
+      marker: {
+        color: 'rgba(179, 27, 27, 0.7)',
+        line: { width: 0 }
+      }
+    });
+  }
+  
+  const histTitle = `${deviceLabel ? `Device ${deviceLabel}` : deviceId} - ${label} Distribution`;
+
+  const layout = {
+    title: { text: histTitle },
+    xaxis: { title: { text: label } },
+    yaxis: { title: { text: 'Frequency' } },
+    barmode: 'overlay',
+    margin: { l: 60, r: 40, t: 40, b: 60 },
+    height: 250,
+    showlegend: compareCoincidence
+  };
+  
+  // Check if Plotly is loaded
+  if (typeof Plotly === 'undefined') {
+    console.error('Plotly not loaded yet');
+    return;
+  }
+  
+  try {
+    const config = {
+      responsive: true,
+      toImageButtonOptions: {
+        format: 'png',
+        filename: `${deviceId}_${field}_histogram${compareCoincidence ? '_compare' : ''}`,
+        height: 600,
+        width: 800,
+        scale: 2
+      },
+      modeBarButtonsToAdd: ['toImage'],
+      editable: false,
+      displaylogo: false
+    };
+    Plotly.newPlot('histogramChart', traces, layout, config);
+  } catch (err) {
+    console.error('Error rendering histogram:', err);
+    return;
+  }
+  
+  // Update histogram-specific stats display
+  const computeDetailedStats = (vals) => {
+    const hist = computeHistogram(vals, numBins);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const sorted = [...vals].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const variance = vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / vals.length;
+    const stddev = Math.sqrt(variance);
+    return { hist, mean, median, stddev };
+  };
+  
+  const allStats = computeDetailedStats(allValues);
+  
+  let histStatsText = `Field: ${label}\nBins: ${numBins}\n\n`;
+  
+  if (compareCoincidence) {
+    const coincStats = computeDetailedStats(coincidenceValues);
+    histStatsText += `ALL EVENTS (n=${allValues.length}):\n` +
+      `  Range: [${allStats.hist.min.toFixed(2)}, ${allStats.hist.max.toFixed(2)}]\n` +
+      `  Mean: ${allStats.mean.toFixed(2)}\n` +
+      `  Median: ${allStats.median.toFixed(2)}\n` +
+      `  StdDev: ${allStats.stddev.toFixed(2)}\n\n` +
+      `COINCIDENCE (n=${coincidenceValues.length}):\n` +
+      `  Range: [${coincStats.hist.min.toFixed(2)}, ${coincStats.hist.max.toFixed(2)}]\n` +
+      `  Mean: ${coincStats.mean.toFixed(2)}\n` +
+      `  Median: ${coincStats.median.toFixed(2)}\n` +
+      `  StdDev: ${coincStats.stddev.toFixed(2)}`;
+  } else {
+    histStatsText += `Samples: ${allValues.length}\n` +
+      `Range: [${allStats.hist.min.toFixed(2)}, ${allStats.hist.max.toFixed(2)}]\n` +
+      `Bin Width: ${allStats.hist.binWidth.toFixed(2)}\n` +
+      `Mean: ${allStats.mean.toFixed(2)}\n` +
+      `Median: ${allStats.median.toFixed(2)}\n` +
+      `StdDev: ${allStats.stddev.toFixed(2)}`;
+  }
+  
+  elHistStats.textContent = histStatsText;
+}
+
+// Download time series as PNG
+function downloadTimeSeries() {
+  if (!timeSeriesChart) return;
+  
+  const canvas = document.getElementById('timeSeriesChart');
+  const url = canvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  
+  const xAxisType = elXAxis.value;
+  const yFields = Array.from(elYAxis.selectedOptions).map(opt => opt.value).join('_');
+  link.download = `${deviceId}_timeseries_${xAxisType}_${yFields}.png`;
+  link.href = url;
+  link.click();
+}
+
+// Event listeners
+elLoadData.addEventListener('click', loadData);
+elUpdatePlot.addEventListener('click', updateTimeSeries);
+document.getElementById('downloadPlot').addEventListener('click', downloadTimeSeries);
+elUpdateHist.addEventListener('click', updateHistogram);
+
+// Initialize
+initCharts();
+</script>
+{% endblock %}
