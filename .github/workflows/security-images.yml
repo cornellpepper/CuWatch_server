@@ -46,6 +46,7 @@ jobs:
           vuln-type: 'os,library'
           format: 'serif'
           exit-code: '1'
+          severity: CRITICAL,HIGH'
 
       - name: Build bridge image (load)
         uses: docker/build-push-action@v6
@@ -63,3 +64,4 @@ jobs:
           vuln-type: 'os,library'
           format: 'serif'
           exit-code: '1'
+          severity: CRITICAL,HIGH'
