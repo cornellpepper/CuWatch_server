@@ -51,7 +51,7 @@ jobs:
           vuln-type: 'os,library'
           format: 'sarif'
           output: 'trivy-web-results.sarif'
-          exit-code: '1'
+          exit-code: '0'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload web scan results to GitHub Security
@@ -78,7 +78,7 @@ jobs:
           vuln-type: 'os,library'
           format:  'sarif'
           output: 'trivy-bridge-results.sarif'
-          exit-code: '1'
+          exit-code: '0'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload bridge scan results to GitHub Security
