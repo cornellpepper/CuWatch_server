@@ -55,7 +55,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload web scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()  # Upload even if scan fails
         with:
           sarif_file: 'trivy-web-results.sarif'
@@ -82,7 +82,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload bridge scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()  # Upload even if scan fails
         with:
           sarif_file: 'trivy-bridge-results.sarif'
