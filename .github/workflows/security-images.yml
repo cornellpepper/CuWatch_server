@@ -44,7 +44,7 @@ jobs:
         with:
           image-ref: local/web:scan
           vuln-type: 'os,library'
-          format: 'serif'
+          format: 'sarif'
           exit-code: '1'
           severity: CRITICAL,HIGH'
 
@@ -62,6 +62,6 @@ jobs:
         with:
           image-ref: local/bridge:scan
           vuln-type: 'os,library'
-          format: 'serif'
+          format: 'sarif'
           exit-code: '1'
           severity: CRITICAL,HIGH'
