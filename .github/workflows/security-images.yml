@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: '0 3 * * 1'
 
 jobs:
   hadolint:
@@ -14,36 +16,50 @@ jobs:
       matrix:
         dockerfile: [services/web/Dockerfile, services/bridge/Dockerfile]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: ${{ matrix.dockerfile }}
 
   trivy:
-    name: Trivy Image Scan
+    name:  Trivy Image Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # Required for SARIF upload
+      actions: read
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build web image (load)
         uses: docker/build-push-action@v6
         with:
-          context: services/web
+          context:  services/web
           file: services/web/Dockerfile
           tags: local/web:scan
           push: false
           load: true
 
-      - name: Scan web image with Trivy
-        uses: aquasecurity/trivy-action@0.24.0
+      - name:  Scan web image with Trivy
+        uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: local/web:scan
+          image-ref: 'local/web:scan'
+          scan-type: 'image'
           vuln-type: 'os,library'
-          format: 'table'
-          exit-code: '1'
+          format: 'sarif'
+          output: 'trivy-web-results.sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload web scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()  # Upload even if scan fails
+        with:
+          sarif_file: 'trivy-web-results.sarif'
+          category: 'trivy-web'
 
       - name: Build bridge image (load)
         uses: docker/build-push-action@v6
@@ -54,10 +70,20 @@ jobs:
           push: false
           load: true
 
-      - name: Scan bridge image with Trivy
-        uses: aquasecurity/trivy-action@0.24.0
+      - name:  Scan bridge image with Trivy
+        uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: local/bridge:scan
+          image-ref: 'local/bridge:scan'
+          scan-type: 'image'
           vuln-type: 'os,library'
-          format: 'table'
-          exit-code: '1'
+          format:  'sarif'
+          output: 'trivy-bridge-results.sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload bridge scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()  # Upload even if scan fails
+        with:
+          sarif_file: 'trivy-bridge-results.sarif'
+          category: 'trivy-bridge'

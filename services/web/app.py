@@ -6,7 +6,7 @@ from sockets import init_sockets
 from mqtt_publish import publish_control
 from mqtt_subscribe import LiveStream, start_subscriber
 from datetime import datetime, timezone, timedelta
-from functools import wraps
+from functools import wraps # noqa: F401
 
 def login_required(view_func):
     # Authentication disabled: pass-through decorator
