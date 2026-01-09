@@ -9,8 +9,18 @@ DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db/iot")
 MQTT_HOST = os.getenv("MQTT_BROKER_URL", "mqtt-broker")
 MQTT_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 
+# Optional debug logging controlled by env var
+DEBUG = str(os.getenv("BRIDGE_DEBUG", "")).strip().lower() in ("1", "true", "yes", "on")
+
+def dlog(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
+
 engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
 meta = MetaData()
+
+# Cache of last control payloads per device_id
+last_controls = {}
 
 samples = Table("samples", meta,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
@@ -109,7 +119,10 @@ def to_bool(name, payload):
 def on_connect(client, userdata, flags, rc):
     client.subscribe("telemetry/#")
     client.subscribe("status/+")
+    # Cache control messages to enrich run metadata
+    client.subscribe("control/+/set")
     print("Bridge connected to MQTT; subscribed.")
+    dlog("Debug logging enabled (BRIDGE_DEBUG=1)")
 
 def on_message(client, userdata, msg):
     topic_parts = msg.topic.split("/")
@@ -120,6 +133,18 @@ def on_message(client, userdata, msg):
 
     now = datetime.now(timezone.utc)
     with engine.begin() as conn:
+        if topic_parts[0] == "control":
+            # Topic: control/<device_id>/set
+            if len(topic_parts) >= 3 and topic_parts[2] == "set":
+                device_id = topic_parts[1]
+                # Store the entire payload; UI and run meta will pick relevant fields
+                try:
+                    last_controls[device_id] = dict(payload)
+                except Exception:
+                    last_controls[device_id] = payload
+                dlog(f"Cached control for {device_id}: {last_controls[device_id]}")
+            return
+
         if topic_parts[0] == "telemetry":
             device_id = topic_parts[1] if len(topic_parts) > 1 else "unknown"
             try:
@@ -159,10 +184,40 @@ def on_message(client, userdata, msg):
                     if run_id is not None:
                         current_meta["current_run"]["id"] = str(run_id)
 
+                    # Pull cached control data to enrich run metadata
+                    ctl = last_controls.get(device_id) or {}
+                    # Extract specific fields - prefer telemetry payload, fallback to cached control
+                    baseline = payload.get("baseline") or ctl.get("baseline")
+                    is_leader = payload.get("is_leader") if "is_leader" in payload else ctl.get("is_leader")
+                    reset_threshold = payload.get("reset_threshold") or ctl.get("reset_threshold")
+                    threshold = payload.get("threshold") or ctl.get("threshold")
+                    dlog(f"Run announced for {device_id} @ {announced_base.isoformat()}, values: baseline={baseline}, is_leader={is_leader}, reset_threshold={reset_threshold}")
+                    # Mirror into current_run for convenience
+                    if baseline is not None:
+                        current_meta["current_run"]["baseline"] = baseline
+                    if is_leader is not None:
+                        current_meta["current_run"]["is_leader"] = bool(is_leader)
+                    if reset_threshold is not None:
+                        current_meta["current_run"]["reset_threshold"] = reset_threshold
+                    if threshold is not None:
+                        current_meta["current_run"]["threshold"] = threshold
+
                     # Upsert run record
-                    run_meta = None
+                    # Build run meta JSON including cached control snapshot fields if available
+                    run_meta_obj = {"source": "bridge"}
+                    if baseline is not None:
+                        run_meta_obj["baseline"] = baseline
+                    if is_leader is not None:
+                        run_meta_obj["is_leader"] = bool(is_leader)
+                    if reset_threshold is not None:
+                        run_meta_obj["reset_threshold"] = reset_threshold
+                    if threshold is not None:
+                        run_meta_obj["threshold"] = threshold
+                    # Optionally include the whole control payload for traceability
+                    if ctl:
+                        run_meta_obj["control_snapshot"] = ctl
                     try:
-                        run_meta = json.dumps({"source": "bridge"})
+                        run_meta = json.dumps(run_meta_obj)
                     except Exception:
                         run_meta = None
                     rstmt = pg_insert(runs).values(
@@ -175,6 +230,7 @@ def on_message(client, userdata, msg):
                         set_={"run_key": (str(run_id) if run_id is not None else None), "meta": run_meta},
                     )
                     conn.execute(rstmt)
+                    dlog(f"Upserted run meta for {device_id} @ {announced_base.isoformat()}")
 
                 # Compute absolute timestamp if only a relative dt is provided
                 dt_ms = None
@@ -265,6 +321,62 @@ def on_message(client, userdata, msg):
                 },
             )
             conn.execute(stmt)
+
+            # If baseline/is_leader/reset_threshold provided outside of the exact run announcement,
+            # try to merge them into the current run's meta using device meta's current_run.base_ts
+            try:
+                has_any = (
+                    ("baseline" in payload) or ("is_leader" in payload) or ("reset_threshold" in payload)
+                )
+                if has_any:
+                    cr = (current_meta.get("current_run") or {}) if isinstance(current_meta, dict) else {}
+                    base_iso = cr.get("base_ts")
+                    if base_iso:
+                        try:
+                            base_dt = datetime.fromisoformat(base_iso.replace('Z', '+00:00'))
+                        except Exception:
+                            base_dt = None
+                        if base_dt is not None:
+                            # Load existing run meta, merge fields
+                            sel = runs.select().where(
+                                (runs.c.device_id == device_id) & (runs.c.base_ts == base_dt)
+                            )
+                            res = conn.execute(sel).mappings().fetchone()
+                            existing_meta = {}
+                            if res and res.get("meta"):
+                                try:
+                                    m = res.get("meta")
+                                    existing_meta = json.loads(m) if isinstance(m, str) else (m or {})
+                                except Exception:
+                                    existing_meta = {}
+                            # Merge new fields
+                            if "baseline" in payload:
+                                existing_meta["baseline"] = payload.get("baseline")
+                            if "is_leader" in payload:
+                                existing_meta["is_leader"] = bool(payload.get("is_leader"))
+                            if "reset_threshold" in payload:
+                                existing_meta["reset_threshold"] = payload.get("reset_threshold")
+                            if "threshold" in payload:
+                                existing_meta["threshold"] = payload.get("threshold")
+                            existing_meta.setdefault("source", "bridge")
+                            try:
+                                upd_meta = json.dumps(existing_meta)
+                            except Exception:
+                                upd_meta = None
+                            if upd_meta is not None:
+                                upd = (
+                                    pg_insert(runs)
+                                    .values(device_id=device_id, base_ts=base_dt, meta=upd_meta)
+                                    .on_conflict_do_update(
+                                        index_elements=[runs.c.device_id, runs.c.base_ts],
+                                        set_={"meta": upd_meta},
+                                    )
+                                )
+                                conn.execute(upd)
+                                dlog(f"Merged late fields into run meta for {device_id} @ {base_dt.isoformat()}")
+            except Exception as _merge_err:
+                # best-effort; ignore merge failures
+                pass
 
         elif topic_parts[0] == "status":
             device_id = topic_parts[1] if len(topic_parts) > 1 else "unknown"

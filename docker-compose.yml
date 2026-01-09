@@ -59,6 +59,13 @@ services:
 
   bridge:
     build: ./services/bridge
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/bridge
+          ignore:
+            - __pycache__/**
+            - .venv/**
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db/iot
       MQTT_BROKER_URL: mqtt-broker

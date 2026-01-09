@@ -66,6 +66,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       <h3>Live Rate (Hz)</h3>
       <div class="stat"><span id="rate">–</span></div>
       <div class="small">Computed using absolute timestamps (<code>ts</code>) over a fixed one-minute trailing window.</div>
+      <div class="small">Note: API returns up to 50,000 samples per request.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
           <input type="number" id="pollSec" min="1" value="5">
@@ -149,6 +150,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/rate.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script>
@@ -201,51 +203,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         }
       });
 
-      function computeRates(rows, windowSec) {
-        // rows are typically newest-first from /api; normalize to time-ascending and drop bad rows
-        const YEAR2000 = 946684800; // seconds since epoch
-        const asc = [];
-        for (const r of [...rows]) {
-          if (!r || r.muon_count == null || !r.ts) continue;
-          const tSec = new Date(r.ts).getTime() / 1000; // seconds
-          if (!isFinite(tSec) || tSec < YEAR2000) continue;
-          asc.push({ t: tSec, c: Number(r.muon_count) });
-        }
-        // sort ascending by time; break ties with muon_count
-        asc.sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
-        if (asc.length < 2) return [];
-
-        // Exact-width sliding window using left-boundary interpolation.
-        // For each point at time ti, compute rate over [ti - windowSec, ti].
-        // Skip outputs until we have a full window of history to eliminate the edge spike.
-        const rates = [];
-        let l = 0; // left pointer (last point with t <= tLeft)
-        for (let i = 0; i < asc.length; i++) {
-          const ti = asc[i].t;
-          const tLeft = ti - windowSec;
-          // Advance left pointer to the last point with t <= tLeft
-          while (l + 1 < asc.length && asc[l + 1].t <= tLeft) l++;
-          if (tLeft < asc[0].t) continue; // not enough history for a full window
-          if (l >= i) continue; // need at least one interval before i
-
-          // Interpolate cumulative count at tLeft between asc[l] and asc[l+1] (if available)
-          const tL = asc[l].t, cL = asc[l].c;
-          let cLeft = cL;
-          if (l + 1 <= i) {
-            const tR = asc[l + 1].t, cR = asc[l + 1].c;
-            if (tR > tL && tLeft > tL) {
-              const f = (tLeft - tL) / (tR - tL);
-              cLeft = cL + f * (cR - cL);
-            }
-          }
-
-          let dc = asc[i].c - cLeft;
-          if (dc < 0) dc = 0; // guard counter reset
-          const r = dc / windowSec;
-          if (isFinite(r)) rates.push({ t: ti, r });
-        }
-        return rates;
-      }
+      // Use shared utility
+      const computeRates = window.computeSlidingRates;
 
       // Replaces drawPlot
       function updateChart(rates) {
