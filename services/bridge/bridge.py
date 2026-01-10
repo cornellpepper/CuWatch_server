@@ -140,7 +140,12 @@ def on_message(client, userdata, msg):
                 # Store the entire payload; UI and run meta will pick relevant fields
                 try:
                     last_controls[device_id] = dict(payload)
-                except Exception:
+                except Exception as e:
+                    # Fallback: keep raw payload, but log why dict conversion failed for debugging
+                    dlog(
+                        f"Failed to convert control payload to dict for {device_id}: {e!r}; "
+                        f"storing raw payload of type {type(payload).__name__}"
+                    )
                     last_controls[device_id] = payload
                 dlog(f"Cached control for {device_id}: {last_controls[device_id]}")
             return
