@@ -5,7 +5,7 @@
   function computeSlidingRates(rows, windowSec) {
     const YEAR2000 = 946684800; // seconds since epoch
     const asc = [];
-    for (const r of [...rows]) {
+    for (const r of rows) {
       if (!r || r.muon_count == null || !r.ts) continue;
       const tSec = new Date(r.ts).getTime() / 1000; // seconds
       if (!isFinite(tSec) || tSec < YEAR2000) continue;

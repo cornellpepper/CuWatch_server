@@ -85,12 +85,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
         if (r.meta && typeof r.meta === 'string') metaObj = JSON.parse(r.meta);
         else if (r.meta && typeof r.meta === 'object') metaObj = r.meta;
       } catch {}
-      const baseline = metaObj && metaObj.baseline != null ? String(metaObj.baseline) : '';      const threshold = metaObj && metaObj.threshold != null ? String(metaObj.threshold) : '';      const isLeader = metaObj && typeof metaObj.is_leader !== 'undefined' ? (metaObj.is_leader ? 'Y' : 'N') : '';
+      const baseline = metaObj && metaObj.baseline != null ? String(metaObj.baseline) : '';
+      const threshold = metaObj && metaObj.threshold != null ? String(metaObj.threshold) : '';
+      const isLeader = metaObj && typeof metaObj.is_leader !== 'undefined' ? (metaObj.is_leader ? 'Y' : 'N') : '';
       const resetThr = metaObj && metaObj.reset_threshold != null ? String(metaObj.reset_threshold) : '';
       const startIso = r.base_ts || '';
       const endIso = (idx > 0 && rows[idx - 1] && rows[idx - 1].base_ts) ? rows[idx - 1].base_ts : '';
       const href = `/api/export/${encodeURIComponent(deviceId)}.csv` + (startIso ? `?start=${encodeURIComponent(startIso)}${endIso ? `&end=${encodeURIComponent(endIso)}` : ''}` : '');
-        const analyzeHref = `/device/${encodeURIComponent(deviceId)}/analyze${r.id != null ? `?run_id=${encodeURIComponent(r.id)}` : ''}`;
+      const analyzeHref = `/device/${encodeURIComponent(deviceId)}/analyze${r.id != null ? `?run_id=${encodeURIComponent(r.id)}` : ''}`;
       return `<tr>
         <td><code>${runLabel ? 'Run ' + escapeHtml(runLabel) : ''}</code></td>
         <td><code>${escapeHtml(localTs)}</code></td>

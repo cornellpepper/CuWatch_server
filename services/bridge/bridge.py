@@ -375,8 +375,8 @@ def on_message(client, userdata, msg):
                                 conn.execute(upd)
                                 dlog(f"Merged late fields into run meta for {device_id} @ {base_dt.isoformat()}")
             except Exception as _merge_err:
-                # best-effort; ignore merge failures
-                pass
+                # best-effort; log merge failures for debugging but do not interrupt processing
+                dlog(f"Error while merging late fields into run meta for {device_id}: {_merge_err!r}")
 
         elif topic_parts[0] == "status":
             device_id = topic_parts[1] if len(topic_parts) > 1 else "unknown"

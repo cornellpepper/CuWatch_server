@@ -94,7 +94,7 @@ select[multiple] { min-height: 100px; }
       <label>Field:
         <select id="histField">
           <option value="muon_count">Muon Count</option>
-          <option value="adc_v" selected>Voltage (ADC counts)</option>
+          <option value="adc_v">Voltage (ADC counts)</option>
           <option value="v" selected>Voltage</option>
           <option value="temp_adc_v">Temperature ADC</option>
           <option value="temperature">Temperature (°C)</option>          
@@ -397,12 +397,12 @@ function updateTimeSeries() {
         return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
       });
       label = 'Temperature (°C)';
-    } else if ( field == 'v' ) {
+    } else if (field === 'v') {
       // Voltage in volts
       yValues = samples.map(s => {
         const v = s['adc_v'];
         if (v === null || v === undefined || !isFinite(v)) return null;
-        return Number(v) * 3.3 / 65535; // 16-bit ADC and 3.3V ref
+        return Number(v) * 3.3 / 65536; // 16-bit ADC (2^16) and 3.3V ref
       });
       label = 'Voltage (V)';
     } else {
@@ -516,12 +516,12 @@ function updateHistogram() {
         return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
       });
       label = 'Temperature (°C)';
-    } else if ( field == 'v' ) {
+    } else if (field === 'v') {
       // Voltage in volts
       vals = sampleSet.map(s => {
         const v = s['adc_v'];
         if (v === null || v === undefined || !isFinite(v)) return null;
-        return Number(v) * 3.3 / 65535; // 16-bit ADC and 3.3V ref
+        return Number(v) * 3.3 / 65536; // 16-bit ADC (2^16) and 3.3V ref
       });
       label = 'Voltage (V)';
     } 
