@@ -326,7 +326,8 @@ def on_message(client, userdata, msg):
             # try to merge them into the current run's meta using device meta's current_run.base_ts
             try:
                 has_any = (
-                    ("baseline" in payload) or ("is_leader" in payload) or ("reset_threshold" in payload)
+                    ("baseline" in payload) or ("is_leader" in payload) or 
+                    ("reset_threshold" in payload) or ("threshold" in payload)
                 )
                 if has_any:
                     cr = (current_meta.get("current_run") or {}) if isinstance(current_meta, dict) else {}
