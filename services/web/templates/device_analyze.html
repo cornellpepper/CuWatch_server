@@ -104,7 +104,7 @@ select[multiple] { min-height: 100px; }
       </label>
       
       <label>Number of bins:
-        <input type="number" id="numBins" value="100" min="5" max="200" step="5">
+        <input type="number" id="numBins" value="50" min="5" max="200" step="5">
       </label>
       
       <label style="display: flex; align-items: center; gap: 0.3rem;">
@@ -552,11 +552,22 @@ function updateHistogram() {
       return;
     }
     
+    // Compute shared bin edges from all data to ensure both histograms use same bins
+    const dataMin = Math.min(...allValues);
+    const dataMax = Math.max(...allValues);
+    const binSize = (dataMax - dataMin) / numBins;
+    const binStart = dataMin;
+    const binEnd = dataMax;
+    
     // All data trace (semi-transparent)
     traces.push({
       x: allValues,
       type: 'histogram',
-      nbinsx: numBins,
+      xbins: {
+        start: binStart,
+        end: binEnd,
+        size: binSize
+      },
       name: 'All events',
       opacity: 0.5,
       marker: {
@@ -569,7 +580,11 @@ function updateHistogram() {
     traces.push({
       x: coincidenceValues,
       type: 'histogram',
-      nbinsx: numBins,
+      xbins: {
+        start: binStart,
+        end: binEnd,
+        size: binSize
+      },
       name: 'Coincidence',
       opacity: 0.7,
       marker: {

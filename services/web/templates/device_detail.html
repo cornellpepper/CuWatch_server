@@ -101,6 +101,14 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           </td>
         </tr>
         <tr>
+          <th>Reset Threshold (0–4095)</th>
+          <td>
+            <input type="number" id="resetThresholdInput" min="0" max="4095" step="1" placeholder="e.g. 1024">
+            <button id="sendResetThreshold" class="btn">Send</button>
+            <span id="resetThresholdStatus" class="small"></span>
+          </td>
+        </tr>
+        <tr>
           <th>Shutdown</th>
           <td>
             <span class="btn-box"><button id="sendShutdown" class="btn danger">Shutdown</button></span>
@@ -360,13 +368,20 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
       }
 
-      // Update threshold input placeholder and validation when status changes
+      // Update threshold and reset_threshold input placeholders and validation when status changes
       function updateThresholdValidation() {
         if (currentStatus && currentStatus.reset_threshold != null) {
           const resetThreshold = Number(currentStatus.reset_threshold);
           if (isFinite(resetThreshold)) {
             elThr.placeholder = `e.g. ${Math.max(2048, resetThreshold + 100)} (> ${resetThreshold})`;
             elThr.min = resetThreshold + 1;
+          }
+        }
+        if (currentStatus && currentStatus.threshold != null) {
+          const threshold = Number(currentStatus.threshold);
+          if (isFinite(threshold)) {
+            elResetThr.placeholder = `e.g. ${Math.max(0, threshold - 100)} (< ${threshold})`;
+            elResetThr.max = threshold - 1;
           }
         }
       }
@@ -449,6 +464,9 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       const elThr = document.getElementById('thresholdInput');
       const elThrBtn = document.getElementById('sendThreshold');
       const elThrStatus = document.getElementById('thresholdStatus');
+      const elResetThr = document.getElementById('resetThresholdInput');
+      const elResetThrBtn = document.getElementById('sendResetThreshold');
+      const elResetThrStatus = document.getElementById('resetThresholdStatus');
       const elShutdownBtn = document.getElementById('sendShutdown');
       const elShutdownStatus = document.getElementById('shutdownStatus');
       const elNewRunBtn = document.getElementById('sendNewRun');
@@ -497,6 +515,47 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       elThrBtn.addEventListener('click', sendThreshold);
+
+      async function sendResetThreshold() {
+        elResetThrStatus.textContent = '';
+        const raw = elResetThr.value.trim();
+        if (!raw) {
+          elResetThrStatus.textContent = 'Enter a value';
+          return;
+        }
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 0 || n > 4095) {
+          elResetThrStatus.textContent = 'Must be integer 0–4095';
+          return;
+        }
+
+        // Check against threshold from current status if available
+        if (currentStatus && currentStatus.threshold != null) {
+          const threshold = Number(currentStatus.threshold);
+          if (isFinite(threshold) && n >= threshold) {
+            elResetThrStatus.textContent = `Must be below threshold (${threshold})`;
+            return;
+          }
+        }
+
+        try {
+          const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reset_threshold: n })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            elResetThrStatus.textContent = data.error || 'Failed to send';
+          } else {
+            elResetThrStatus.textContent = 'Sent';
+          }
+        } catch (e) {
+          elResetThrStatus.textContent = 'Network error';
+        }
+      }
+
+      elResetThrBtn.addEventListener('click', sendResetThreshold);
 
       function withCmdId(obj) {
         try {

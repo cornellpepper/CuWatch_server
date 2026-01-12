@@ -45,6 +45,8 @@ services:
       mqtt-broker:
         condition: service_started
     ports: ["80:80"]
+    volumes:
+      - /var/log/sysstat:/var/log/sysstat:ro
     command: >
       gunicorn
       -k eventlet

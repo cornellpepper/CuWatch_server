@@ -5,8 +5,10 @@ from config import Config
 from sockets import init_sockets
 from mqtt_publish import publish_control
 from mqtt_subscribe import LiveStream, start_subscriber
+from sar_parser import SARParser
 from datetime import datetime, timezone, timedelta
 from functools import wraps # noqa: F401
+import psutil
 
 def login_required(view_func):
     # Authentication disabled: pass-through decorator
@@ -25,8 +27,12 @@ def create_app():
 
     # Live stream buffer + MQTT subscriber
     stream = LiveStream(maxlen=2000)
-    start_subscriber(app, stream)
+    mqtt_client = start_subscriber(app, stream)
     init_sockets(app, stream)
+    
+    # Store references for health monitoring
+    app.mqtt_client = mqtt_client
+    app.live_stream = stream
 
     @app.route('/')
     def index():
@@ -267,12 +273,127 @@ def create_app():
             # Normalize to int in payload
             payload['threshold'] = thr
 
+        if 'reset_threshold' in payload:
+            try:
+                reset_thr = int(payload['reset_threshold'])
+            except Exception:
+                return jsonify({'ok': False, 'error': 'reset_threshold must be an integer'}), 400
+            if reset_thr < 0 or reset_thr > 4095:
+                return jsonify({'ok': False, 'error': 'reset_threshold must be between 0 and 4095'}), 400
+            # Validate reset_threshold < threshold if both are present
+            if 'threshold' in payload and reset_thr >= payload['threshold']:
+                return jsonify({'ok': False, 'error': 'reset_threshold must be below threshold'}), 400
+            # Normalize to int in payload
+            payload['reset_threshold'] = reset_thr
+
         publish_control(device_id, payload, retain=False)
         return jsonify({'ok': True})
 
     @app.get('/healthz')
     def health():
         return {'status': 'ok'}
+
+    @app.get('/system')
+    @login_required
+    def system_health():
+        """System health monitoring page"""
+        return render_template('system_health.html')
+
+    @app.get('/api/system/health')
+    def system_health_api():
+        """System health metrics API"""
+        import time
+        
+        # CPU and Memory
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        
+        # Database health
+        db_healthy = False
+        db_error = None
+        total_samples = 0
+        total_devices = 0
+        try:
+            total_devices = db.session.query(Device).count()
+            total_samples = db.session.query(Sample).count()
+            db_healthy = True
+        except Exception as e:
+            db_error = str(e)
+        
+        # MQTT client status
+        mqtt_connected = False
+        if hasattr(app, 'mqtt_client') and app.mqtt_client:
+            mqtt_connected = app.mqtt_client.is_connected()
+        
+        # Live stream buffer stats
+        stream_buffer_size = 0
+        if hasattr(app, 'live_stream') and app.live_stream:
+            stream_buffer_size = len(app.live_stream._buf)
+        
+        # Process info
+        process = psutil.Process()
+        uptime = time.time() - process.create_time()
+        
+        return jsonify({
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'system': {
+                'cpu_percent': round(cpu_percent, 1),
+                'memory_percent': round(memory.percent, 1),
+                'memory_used_mb': round(memory.used / 1024 / 1024, 1),
+                'memory_total_mb': round(memory.total / 1024 / 1024, 1),
+            },
+            'process': {
+                'uptime_seconds': round(uptime, 1),
+                'memory_mb': round(process.memory_info().rss / 1024 / 1024, 1),
+                'threads': process.num_threads(),
+            },
+            'database': {
+                'healthy': db_healthy,
+                'error': db_error,
+                'total_devices': total_devices,
+                'total_samples': total_samples,
+            },
+            'mqtt': {
+                'connected': mqtt_connected,
+                'stream_buffer_size': stream_buffer_size,
+            }
+        })
+
+    @app.get('/api/system/sar/cpu')
+    def sar_cpu():
+        """SAR CPU usage history"""
+        days_back = request.args.get('days_back', default='0', type=int)
+        data = SARParser.get_cpu_history(days_back=days_back)
+        return jsonify({
+            'metric_type': 'cpu',
+            'days_back': days_back,
+            'samples': len(data),
+            'data': data
+        })
+
+    @app.get('/api/system/sar/memory')
+    def sar_memory():
+        """SAR memory usage history"""
+        days_back = request.args.get('days_back', default='0', type=int)
+        data = SARParser.get_memory_history(days_back=days_back)
+        return jsonify({
+            'metric_type': 'memory',
+            'days_back': days_back,
+            'samples': len(data),
+            'data': data
+        })
+
+    @app.get('/api/system/sar/disk')
+    def sar_disk():
+        """SAR disk I/O history"""
+        days_back = request.args.get('days_back', default='0', type=int)
+        data = SARParser.get_disk_io_history(days_back=days_back)
+        return jsonify({
+            'metric_type': 'disk_io',
+            'days_back': days_back,
+            'samples': len(data),
+            'data': data
+        })
 
     with app.app_context():
         db.create_all()
