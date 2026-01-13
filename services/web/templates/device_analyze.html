@@ -61,6 +61,7 @@ select[multiple] { min-height: 100px; }
       <label>X-axis:
         <select id="xAxis">
           <option value="ts">Wall Clock Time</option>
+          <option value="dt">Relative Time (ms)</option>
           <option value="index">Sample Index</option>
         </select>
       </label>
@@ -343,6 +344,13 @@ function updateTimeSeries() {
           hour: 'HH:mm'
         }
       },
+      title: { display: true, text: xLabel }
+    };
+  } else if (xAxisType === 'dt') {
+    xValues = samples.map(s => s.dt || 0);
+    xLabel = 'Relative Time (ms)';
+    xScaleConfig = {
+      type: 'linear',
       title: { display: true, text: xLabel }
     };
   } else { // index

@@ -137,16 +137,17 @@ def on_message(client, userdata, msg):
             # Topic: control/<device_id>/set
             if len(topic_parts) >= 3 and topic_parts[2] == "set":
                 device_id = topic_parts[1]
-                # Store the entire payload; UI and run meta will pick relevant fields
-                try:
-                    last_controls[device_id] = dict(payload)
-                except Exception as e:
-                    # Fallback: keep raw payload, but log why dict conversion failed for debugging
+                # Store the entire payload as a dict; UI and run meta will pick relevant fields
+                if isinstance(payload, dict):
+                    # Use a shallow copy so later mutations to payload don't affect the cache
+                    last_controls[device_id] = payload.copy()
+                else:
+                    # Ensure we always cache a dict, even for non-dict JSON payloads
                     dlog(
-                        f"Failed to convert control payload to dict for {device_id}: {e!r}; "
-                        f"storing raw payload of type {type(payload).__name__}"
+                        f"Control payload for {device_id} is non-dict "
+                        f"({type(payload).__name__}); wrapping in {{'raw': ...}}"
                     )
-                    last_controls[device_id] = payload
+                    last_controls[device_id] = {"raw": payload}
                 dlog(f"Cached control for {device_id}: {last_controls[device_id]}")
             return
 
@@ -191,6 +192,9 @@ def on_message(client, userdata, msg):
 
                     # Pull cached control data to enrich run metadata
                     ctl = last_controls.get(device_id) or {}
+                    # Ensure ctl is a dict before calling .get()
+                    if not isinstance(ctl, dict):
+                        ctl = {}
                     # Extract specific fields - prefer telemetry payload, fallback to cached control
                     baseline = payload.get("baseline") or ctl.get("baseline")
                     is_leader = payload.get("is_leader") if "is_leader" in payload else ctl.get("is_leader")

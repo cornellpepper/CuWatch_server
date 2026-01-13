@@ -60,7 +60,7 @@ class SARParser:
                     
                     # Create timestamp
                     ts = datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=timezone.utc)  # Keep in local timezone
                     
                     # Calculate overall CPU usage (100 - idle)
                     idle = float(parts[7])
@@ -224,6 +224,6 @@ class SARParser:
                 if match:
                     day = int(match.group(1))
                     dates.append(day)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error listing SAR available dates: {e}")
         return sorted(set(dates), reverse=True)

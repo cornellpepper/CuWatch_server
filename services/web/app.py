@@ -280,9 +280,28 @@ def create_app():
                 return jsonify({'ok': False, 'error': 'reset_threshold must be an integer'}), 400
             if reset_thr < 0 or reset_thr > 4095:
                 return jsonify({'ok': False, 'error': 'reset_threshold must be between 0 and 4095'}), 400
-            # Validate reset_threshold < threshold if both are present
-            if 'threshold' in payload and reset_thr >= payload['threshold']:
-                return jsonify({'ok': False, 'error': 'reset_threshold must be below threshold'}), 400
+
+            # Determine the effective threshold: from payload or device meta
+            effective_threshold = payload.get('threshold')
+            if effective_threshold is None:
+                device = Device.query.filter_by(id=device_id).first()
+                if device and device.meta:
+                    try:
+                        import json as _json
+                        meta = _json.loads(device.meta) if isinstance(device.meta, str) else device.meta
+                        effective_threshold = meta.get('metrics', {}).get('threshold')
+                    except Exception:
+                        effective_threshold = None
+
+            # Validate reset_threshold < threshold
+            if effective_threshold is not None:
+                try:
+                    effective_threshold = int(effective_threshold)
+                    if reset_thr >= effective_threshold:
+                        return jsonify({'ok': False, 'error': 'reset_threshold must be strictly less than threshold'}), 400
+                except (ValueError, TypeError):
+                    pass
+
             # Normalize to int in payload
             payload['reset_threshold'] = reset_thr
 
@@ -303,6 +322,7 @@ def create_app():
     def system_health_api():
         """System health metrics API"""
         import time
+import json as _json
         
         # CPU and Memory
         cpu_percent = psutil.cpu_percent(interval=0.1)
