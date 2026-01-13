@@ -254,7 +254,8 @@ def create_app():
                 ]
                 yield ",".join(row) + "\n"
 
-        return Response(stream_with_context(gen()), mimetype="text/csv")
+        headers = {'Content-Disposition': f'attachment; filename="{device_id}.csv"'}
+        return Response(stream_with_context(gen()), mimetype="text/csv", headers=headers)
 
     @app.post('/api/control/<device_id>')
     @login_required
@@ -322,7 +323,7 @@ def create_app():
     def system_health_api():
         """System health metrics API"""
         import time
-import json as _json
+        import json as _json
         
         # CPU and Memory
         cpu_percent = psutil.cpu_percent(interval=0.1)
