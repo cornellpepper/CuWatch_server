@@ -377,7 +377,6 @@ def create_app():
     def device_rates_api():
         """Device sample rate monitoring - detect anomalies like light leaks"""
         import json as _json
-        from sqlalchemy import text
         
         now = datetime.now(timezone.utc)
         
