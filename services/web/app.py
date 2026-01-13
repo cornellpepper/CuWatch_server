@@ -379,6 +379,121 @@ def create_app():
             }
         })
 
+    @app.get('/api/system/device-rates')
+    def device_rates_api():
+        """Device sample rate monitoring - detect anomalies like light leaks"""
+        from sqlalchemy import text, func
+        import json as _json
+        
+        # Get current rates from device metadata
+        devices = db.session.query(Device).all()
+        device_data = []
+        
+        for device in devices:
+            # Parse meta to get current rate metrics
+            meta = {}
+            try:
+                meta = _json.loads(device.meta) if isinstance(device.meta, str) else (device.meta or {})
+            except Exception:
+                pass
+            
+            metrics = meta.get('metrics', {})
+            inst_rate = metrics.get('inst_rate_hz', 0)
+            ema_rate = metrics.get('ema_rate_hz', 0)
+            
+            # Get recent sample counts (last 1, 5, 60 minutes)
+            now = datetime.now(timezone.utc)
+            counts = {}
+            for minutes in [1, 5, 60]:
+                count = db.session.query(func.count(Sample.id)).filter(
+                    Sample.device_id == device.id,
+                    Sample.ts >= now - timedelta(minutes=minutes)
+                ).scalar() or 0
+                counts[f'{minutes}m'] = count
+                counts[f'{minutes}m_rate'] = round(count / (minutes * 60), 2)  # samples/sec
+            
+            # Determine status: green (<2 Hz), yellow (2-10 Hz), red (>10 Hz)
+            current_rate = counts.get('1m_rate', 0)
+            if current_rate > 10:
+                status = 'critical'
+            elif current_rate > 2:
+                status = 'warning'
+            else:
+                status = 'normal'
+            
+            device_data.append({
+                'device_id': device.id,
+                'device_number': device.device_number,
+                'online': device.online,
+                'last_seen': device.last_seen.isoformat() if device.last_seen else None,
+                'inst_rate_hz': round(inst_rate, 2) if inst_rate else 0,
+                'ema_rate_hz': round(ema_rate, 2) if ema_rate else 0,
+                'samples_1m': counts['1m'],
+                'samples_5m': counts['5m'],
+                'samples_60m': counts['60m'],
+                'rate_1m': counts['1m_rate'],
+                'rate_5m': counts['5m_rate'],
+                'rate_60m': counts['60m_rate'],
+                'status': status
+            })
+        
+        return jsonify({
+            'timestamp': now.isoformat(),
+            'devices': device_data
+        })
+
+    @app.get('/api/system/device-rates/history')
+    def device_rates_history():
+        """Historical sample rate trends for a device"""
+        from sqlalchemy import text, func
+        
+        device_id = request.args.get('device_id', type=str)
+        hours_back = request.args.get('hours', default=24, type=int)
+        
+        if not device_id:
+            return jsonify({'error': 'device_id required'}), 400
+        
+        # Get hourly sample counts
+        query = text("""
+            SELECT 
+                DATE_TRUNC('hour', ts) as hour,
+                COUNT(*) as samples,
+                AVG(dt) as avg_dt_ms
+            FROM samples 
+            WHERE device_id = :device_id 
+                AND ts >= NOW() - INTERVAL :hours_str
+            GROUP BY hour 
+            ORDER BY hour ASC
+        """)
+        
+        result = db.session.execute(
+            query, 
+            {'device_id': device_id, 'hours_str': f'{hours_back} hours'}
+        )
+        
+        data = []
+        for row in result:
+            hour_timestamp = row[0].replace(tzinfo=timezone.utc).isoformat()
+            samples = row[1]
+            avg_dt = float(row[2] or 0)  # Convert Decimal to float
+            # Calculate average rate for that hour
+            avg_rate_hz = round(1000.0 / avg_dt, 2) if avg_dt > 0 else 0
+            samples_per_sec = round(samples / 3600.0, 2)
+            
+            data.append({
+                'timestamp': hour_timestamp,
+                'samples': samples,
+                'avg_dt_ms': round(avg_dt, 1) if avg_dt else 0,
+                'avg_rate_hz': avg_rate_hz,
+                'samples_per_sec': samples_per_sec
+            })
+        
+        return jsonify({
+            'device_id': device_id,
+            'hours_back': hours_back,
+            'data': data
+        })
+
     @app.get('/api/system/sar/cpu')
     def sar_cpu():
         """SAR CPU usage history"""
