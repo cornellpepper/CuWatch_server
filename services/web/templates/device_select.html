@@ -18,7 +18,7 @@ a.btn { display: inline-block; margin-top: .5rem; background: #eee; padding: .3r
     <div class="small" style="color: #666; margin-bottom: 1rem;">
       Last updated: <span id="last-updated">{{ moment().format('YYYY-MM-DD HH:mm:ss') if moment else 'loading...' }}</span>
       <span style="margin-left: 1rem;">
-        <a href="{{ url_for('system_health') }}" style="color: #666; text-decoration: underline;">System Health</a>
+        <a href="{{ url_for('system_health') }}" style="color: #666; text-decoration: underline; font-size: 0.85rem;">System Health</a>
       </span>
     </div>
     <div id="device-list">

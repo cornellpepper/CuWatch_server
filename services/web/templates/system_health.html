@@ -618,8 +618,8 @@ updateHistoricalCharts().catch(err => console.error('Initial chart load error:',
 // Refresh health metrics every 5 seconds
 setInterval(updateHealth, 5000);
 
-// Refresh device rates every 10 seconds
-setInterval(updateDeviceRates, 10000);
+// Refresh device rates every 30 seconds (reduced from 10s to lower CPU impact)
+setInterval(updateDeviceRates, 30000);
 
 // Also refresh when page becomes visible
 document.addEventListener('visibilitychange', () => {
