@@ -323,7 +323,6 @@ def create_app():
     def system_health_api():
         """System health metrics API"""
         import time
-        import json as _json
         
         # CPU and Memory
         cpu_percent = psutil.cpu_percent(interval=0.1)
