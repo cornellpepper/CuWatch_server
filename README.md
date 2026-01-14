@@ -180,7 +180,12 @@ curl -fsS http://localhost/healthz
 
 # Subscribe to MQTT topics
 mosquitto_sub -h localhost -t 'telemetry/#' -v
+
+# Access system health dashboard (historical CPU/memory/disk)
+# Visit http://localhost/system in your browser
 ```
+
+**System Health & Monitoring**: The `/system` page displays real-time and historical performance metrics from SAR (System Activity Report) data. See [docs/SAR_INTEGRATION.md](docs/SAR_INTEGRATION.md) for details on system dependencies and how to migrate to other Linux distributions.
 
 Backup and restore the dev database:
 

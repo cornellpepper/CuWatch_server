@@ -29,15 +29,16 @@ select[multiple] { min-height: 100px; }
     <div class="controls">
       <label>Run:
         <select id="runSelect" style="min-width: 200px;">
-          <option value="">Latest data (last 1000 points)</option>
+          <option value="" id="latestOption">Latest data (up to selected Max points)</option>
           {% for i in range(runs|length) %}
           {% set run = runs[i] %}
           {% set next_run = runs[i-1] if i > 0 else none %}
-          <option value="{{ run.id }}" 
+          {% set run_label = "Run " ~ (run.run_key if run.run_key else run.id) %}
+          <option value="{{ run.id }}"
+                  data-run-label="{{ run_label }}"
                   data-base-ts="{{ run.base_ts.isoformat() }}"
                   {% if next_run %}data-end-ts="{{ next_run.base_ts.isoformat() }}"{% endif %}>
-            {% if run.run_key %}Run {{ run.run_key }}{% else %}Run {{ run.id }}{% endif %} 
-            ({{ run.base_ts.strftime('%Y-%m-%d %H:%M') }})
+            {{ run_label }}
           </option>
           {% endfor %}
         </select>
@@ -49,7 +50,7 @@ select[multiple] { min-height: 100px; }
       
       <button id="loadData" class="btn" style="background:var(--carnelian);color:white;">Load Data</button>
     </div>
-    <p class="small" id="dataStatus" style="margin-top: 0.5rem;">Select options and click "Load Data"</p>
+    <p class="small" id="dataStatus" style="margin-top: 0.5rem;">Select options and click "Load Data."  API returns up to 50,000 samples per request; Max points respects this cap.</p>
   </div>
 </div>
 
@@ -59,7 +60,7 @@ select[multiple] { min-height: 100px; }
     <div class="controls">
       <label>X-axis:
         <select id="xAxis">
-          <option value="ts">Absolute Time</option>
+          <option value="ts">Wall Clock Time</option>
           <option value="dt">Relative Time (ms)</option>
           <option value="index">Sample Index</option>
         </select>
@@ -67,8 +68,9 @@ select[multiple] { min-height: 100px; }
       
       <label style="flex-grow: 1;">Y-axis (multi-select, Ctrl/Cmd+Click):
         <select id="yAxis" multiple size="5" style="width: 100%; max-width: 300px;">
-          <option value="muon_count" selected>Muon Count</option>
-          <option value="adc_v">ADC Voltage</option>
+          <option value="muon_count" >Muon Count</option>
+          <option value="adc_v">Voltage (ADC counts)</option>
+          <option value="v" selected>Voltage</option>
           <option value="temp_adc_v">Temperature ADC</option>          
           <option value="temperature">Temperature (°C)</option>          
           <option value="wait_cnt">Wait Count</option>
@@ -82,6 +84,7 @@ select[multiple] { min-height: 100px; }
     <div class="chart-container" style="margin-top: 1rem;">
       <canvas id="timeSeriesChart"></canvas>
     </div>
+    <p class="small" style="margin-top:.5rem;">Note: Rate (Hz) uses a 60-second sliding window (same as Device Detail). API returns up to 50,000 samples per request; Max points respects this cap.</p>
   </div>
 </div>
 
@@ -92,7 +95,8 @@ select[multiple] { min-height: 100px; }
       <label>Field:
         <select id="histField">
           <option value="muon_count">Muon Count</option>
-          <option value="adc_v">ADC Voltage</option>
+          <option value="adc_v">Voltage (ADC counts)</option>
+          <option value="v" selected>Voltage</option>
           <option value="temp_adc_v">Temperature ADC</option>
           <option value="temperature">Temperature (°C)</option>          
           <option value="wait_cnt">Wait Count</option>
@@ -101,7 +105,7 @@ select[multiple] { min-height: 100px; }
       </label>
       
       <label>Number of bins:
-        <input type="number" id="numBins" value="20" min="5" max="100" step="5">
+        <input type="number" id="numBins" value="50" min="5" max="200" step="5">
       </label>
       
       <label style="display: flex; align-items: center; gap: 0.3rem;">
@@ -114,6 +118,10 @@ select[multiple] { min-height: 100px; }
     <div class="chart-container" style="margin-top: 1rem;">
       <div id="histogramChart" style="height: 250px;"></div>
     </div>
+    <p class="small" style="margin-top:.5rem;">Note: Histogram for Rate (Hz) bins the 60-second 
+    sliding-window rates. API returns up to 50,000 samples per request; Max points respects this cap.
+    Hover over the image for controls to zoom/pan and download as PNG.
+    </p>
     <div id="histStats" class="stats-box" style="margin-top: 0.5rem;">No histogram data</div>
   </div>
 </div>
@@ -128,6 +136,7 @@ select[multiple] { min-height: 100px; }
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/rate.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
@@ -138,6 +147,7 @@ const deviceLabel = "{{ device.device_number if device and device.device_number 
 // DOM elements
 const elRunSelect = document.getElementById('runSelect');
 const elMaxPoints = document.getElementById('maxPoints');
+const elLatestOption = document.getElementById('latestOption');
 const elLoadData = document.getElementById('loadData');
 const elDataStatus = document.getElementById('dataStatus');
 const elXAxis = document.getElementById('xAxis');
@@ -182,6 +192,26 @@ function initCharts() {
       }
     }
   });
+}
+
+// Keep the "Latest data" option label in sync with Max points
+function updateLatestOptionLabel() {
+  if (!elLatestOption) return;
+  const n = Math.max(1, parseInt(elMaxPoints.value) || 1000);
+  elLatestOption.textContent = `Latest data (up to ${n} points)`;
+}
+
+// Validate Max points against input constraints
+function validateMaxPoints() {
+  const max = Number(elMaxPoints.max) || 50000;
+  const min = Number(elMaxPoints.min) || 100;
+  const val = parseInt(elMaxPoints.value) || 0;
+  let msg = '';
+  if (val > max) msg = `Max points cannot exceed ${max}.`;
+  else if (val < min) msg = `Max points must be at least ${min}.`;
+  elMaxPoints.setCustomValidity(msg);
+  if (msg) elMaxPoints.reportValidity();
+  return !msg;
 }
 
 // Load data from API
@@ -353,30 +383,20 @@ function updateTimeSeries() {
   for (const [idx, field] of yFields.entries()) {
     let yValues;
     let label = field;
+    let dataPoints;
     
     if (field === 'rate') {
-      // Prefer ts-based delta; fallback to dt when available
-      const instantRates = samples.map((s, idx) => {
-        if (idx > 0 && s.ts && samples[idx - 1]?.ts) {
-          const currTs = new Date(s.ts).getTime();
-          const prevTs = new Date(samples[idx - 1].ts).getTime();
-          const deltaMs = currTs - prevTs;
-          if (deltaMs > 0) return 1000.0 / deltaMs;
-        }
-        const dtVal = Number(s.dt);
-        if (dtVal > 0) return 1000.0 / dtVal;
-        return null;
-      });
-      
-      // Apply rolling average (30 samples) to smooth discrete timestamp precision
-      const window = 30;
-      yValues = instantRates.map((rate, idx) => {
-        const start = Math.max(0, idx - window + 1);
-        const windowRates = instantRates.slice(start, idx + 1).filter(r => r !== null);
-        if (windowRates.length === 0) return null;
-        return windowRates.reduce((a, b) => a + b, 0) / windowRates.length;
-      });
-      label = 'Rate (Hz, rolling avg)';
+      // Use same sliding-window rate (60s) as device_detail
+      const windowSec = 60;
+      const ratePts = window.computeSlidingRates(samples, windowSec);
+      label = 'Rate (Hz)';
+
+      // Map x based on selection
+      if (xAxisType === 'ts') {
+        dataPoints = ratePts.map(p => ({ x: p.t * 1000, y: p.r }));
+      } else {
+        dataPoints = ratePts.map((p, i) => ({ x: i, y: p.r }));
+      }
     } else if (field === 'temperature') {
       // Convert temp_adc_v to celsius: (adc*3.3/(2**16)-0.5)/0.01
       yValues = samples.map(s => {
@@ -385,6 +405,14 @@ function updateTimeSeries() {
         return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
       });
       label = 'Temperature (°C)';
+    } else if (field === 'v') {
+      // Voltage in volts
+      yValues = samples.map(s => {
+        const v = s['adc_v'];
+        if (v === null || v === undefined || !isFinite(v)) return null;
+        return Number(v) * 3.3 / 65536; // 16-bit ADC (2^16) and 3.3V ref
+      });
+      label = 'Voltage (V)';
     } else {
       yValues = samples.map(s => {
         const v = s[field];
@@ -392,7 +420,9 @@ function updateTimeSeries() {
       });
     }
     
-    const dataPoints = xValues.map((x, i) => ({ x, y: yValues[i] }));
+    if (!dataPoints) {
+      dataPoints = xValues.map((x, i) => ({ x, y: yValues[i] }));
+    }
     dataPoints.forEach(p => {
       if (p.y != null && isFinite(p.y)) {
         yMin = Math.min(yMin, p.y);
@@ -413,7 +443,7 @@ function updateTimeSeries() {
     
     // Compute stats
     if (field === 'rate') {
-      statsMap[label] = computeStats(yValues.map(v => ({ rate: v })), 'rate');
+      statsMap[label] = computeStats(dataPoints.map(p => ({ rate: p.y })), 'rate');
     } else {
       statsMap[label] = computeStats(samples, field);
     }
@@ -483,26 +513,8 @@ function updateHistogram() {
   const extractValues = (sampleSet) => {
     let vals;
     if (field === 'rate') {
-      const instantRates = sampleSet.map((s, idx) => {
-        if (idx > 0 && s.ts && sampleSet[idx - 1]?.ts) {
-          const currTs = new Date(s.ts).getTime();
-          const prevTs = new Date(sampleSet[idx - 1].ts).getTime();
-          const deltaMs = currTs - prevTs;
-          if (deltaMs > 0) return 1000.0 / deltaMs;
-        }
-        const dtVal = Number(s.dt);
-        if (dtVal > 0) return 1000.0 / dtVal;
-        return null;
-      });
-      
-      // Apply rolling average (30 samples) to smooth discrete timestamp precision
-      const window = 30;
-      vals = instantRates.map((rate, idx) => {
-        const start = Math.max(0, idx - window + 1);
-        const windowRates = instantRates.slice(start, idx + 1).filter(r => r !== null);
-        if (windowRates.length === 0) return null;
-        return windowRates.reduce((a, b) => a + b, 0) / windowRates.length;
-      });
+      const windowSec = 60;
+      vals = window.computeSlidingRates(sampleSet, windowSec).map(p => p.r);
       label = 'Rate (Hz)';
     } else if (field === 'temperature') {
       // Convert temp_adc_v to celsius: (adc*3.3/(2**16)-0.5)/0.01
@@ -512,7 +524,16 @@ function updateHistogram() {
         return ((adcVal * 3.3 / 65536) - 0.5) / 0.01;
       });
       label = 'Temperature (°C)';
-    } else {
+    } else if (field === 'v') {
+      // Voltage in volts
+      vals = sampleSet.map(s => {
+        const v = s['adc_v'];
+        if (v === null || v === undefined || !isFinite(v)) return null;
+        return Number(v) * 3.3 / 65536; // 16-bit ADC (2^16) and 3.3V ref
+      });
+      label = 'Voltage (V)';
+    } 
+    else {
       vals = sampleSet.map(s => s[field]);
     }
     return vals.filter(v => v != null && isFinite(v));
@@ -539,11 +560,22 @@ function updateHistogram() {
       return;
     }
     
+    // Compute shared bin edges from all data to ensure both histograms use same bins
+    const dataMin = Math.min(...allValues);
+    const dataMax = Math.max(...allValues);
+    const binSize = (dataMax - dataMin) / numBins;
+    const binStart = dataMin;
+    const binEnd = dataMax;
+    
     // All data trace (semi-transparent)
     traces.push({
       x: allValues,
       type: 'histogram',
-      nbinsx: numBins,
+      xbins: {
+        start: binStart,
+        end: binEnd,
+        size: binSize
+      },
       name: 'All events',
       opacity: 0.5,
       marker: {
@@ -556,7 +588,11 @@ function updateHistogram() {
     traces.push({
       x: coincidenceValues,
       type: 'histogram',
-      nbinsx: numBins,
+      xbins: {
+        start: binStart,
+        end: binEnd,
+        size: binSize
+      },
       name: 'Coincidence',
       opacity: 0.7,
       marker: {
@@ -675,8 +711,65 @@ elLoadData.addEventListener('click', loadData);
 elUpdatePlot.addEventListener('click', updateTimeSeries);
 document.getElementById('downloadPlot').addEventListener('click', downloadTimeSeries);
 elUpdateHist.addEventListener('click', updateHistogram);
+elMaxPoints.addEventListener('input', updateLatestOptionLabel);
+elMaxPoints.addEventListener('input', validateMaxPoints);
+
+// Block load when Max points invalid
+elLoadData.addEventListener('click', (e) => {
+  if (!validateMaxPoints()) {
+    e.preventDefault();
+    elDataStatus.textContent = `Please fix Max points: ${elMaxPoints.validationMessage}`;
+    return;
+  }
+});
 
 // Initialize
 initCharts();
+updateLatestOptionLabel();
+validateMaxPoints();
+
+// Render run option labels with local time
+function localizeRunLabels() {
+  try {
+    const opts = Array.from(elRunSelect.options || []);
+    for (const opt of opts) {
+      const baseTs = opt.dataset?.baseTs;
+      if (!baseTs) continue;
+      try {
+        const d = new Date(baseTs);
+        if (!isNaN(d.getTime())) {
+          const labelBase = opt.dataset?.runLabel || opt.textContent || '';
+          opt.textContent = `${labelBase} (${d.toLocaleString()})`;
+        }
+      } catch {}
+    }
+  } catch {}
+}
+localizeRunLabels();
+
+// Pre-select run from query and auto-load if provided
+(function initFromQuery() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const runId = params.get('run_id');
+    if (runId) {
+      // Set selection if option exists
+      const opt = Array.from(elRunSelect.options).find(o => String(o.value) === String(runId));
+      if (opt) {
+        elRunSelect.value = runId;
+        // Set Max points to the input's maximum to fetch full run (API caps at 50k)
+        if (elMaxPoints && elMaxPoints.max) {
+          elMaxPoints.value = String(elMaxPoints.max);
+          updateLatestOptionLabel();
+          validateMaxPoints();
+        }
+        // Load data for the selected run automatically
+        loadData();
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+})();
 </script>
 {% endblock %}

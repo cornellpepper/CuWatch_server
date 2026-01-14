@@ -45,6 +45,23 @@ services:
       mqtt-broker:
         condition: service_started
     ports: ["80:80"]
+    # Volume mount for sysstat logs
+    # Mounts the host's sysstat directory into the container as read-only
+    # Prerequisites:
+    #   - sysstat package must be installed on the host system
+    #   - /var/log/sysstat directory must exist on the host
+    # 
+    # Warning: Container startup will fail if:
+    #   - The host path does not exist
+    #   - sysstat is not installed on the host
+    #
+    # Recommendation: Verify host has sysstat installed before deployment:
+    #   Ubuntu/Debian: sudo apt-get install sysstat
+    #   RHEL/CentOS: sudo yum install sysstat
+    #
+    # Read-only flag (:ro) prevents container from modifying sysstat logs
+    volumes:
+      - /var/log/sysstat:/var/log/sysstat:ro
     command: >
       gunicorn
       -k eventlet
@@ -59,6 +76,13 @@ services:
 
   bridge:
     build: ./services/bridge
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/bridge
+          ignore:
+            - __pycache__/**
+            - .venv/**
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db/iot
       MQTT_BROKER_URL: mqtt-broker

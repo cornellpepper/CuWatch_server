@@ -1,0 +1,632 @@
+{% extends "base.html" %}
+{% block title %}System Health – CuWatch{% endblock %}
+{% block style %}
+<style>
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem; }
+.health-card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; background: white; }
+.health-card h3 { margin-top: 0; margin-bottom: 0.75rem; color: var(--carnelian); font-size: 1.1rem; }
+.metric { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }
+.metric:last-child { border-bottom: none; }
+.metric-label { font-weight: 500; color: #555; }
+.metric-value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95rem; }
+.status-indicator { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 0.3rem; }
+.status-ok { background: #10b981; }
+.status-error { background: #ef4444; }
+.status-warning { background: #f59e0b; }
+.progress-bar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-top: 0.3rem; }
+.progress-fill { height: 100%; background: var(--carnelian); transition: width 0.3s ease; }
+.refresh-info { color: #666; font-size: 0.9rem; margin-top: 1rem; text-align: center; }
+.chart-container { width: 100%; height: 300px; margin-top: 1rem; }
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.tab-button { padding: 0.5rem 1rem; background: #f0f0f0; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+.tab-button.active { background: var(--carnelian); color: white; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.history-section { margin-top: 2rem; }
+.history-section h2 { color: var(--carnelian); margin-bottom: 1rem; }
+.date-selector { margin-bottom: 1rem; }
+.date-selector select { padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px; }
+.device-table { width: 100%; border-collapse: collapse; margin-top: 1rem; background: white; }
+.device-table th, .device-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
+.device-table th { background: #f9fafb; font-weight: 600; color: #374151; }
+.device-table tbody tr:hover { background: #f9fafb; }
+.status-badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500; }
+.status-normal { background: #d1fae5; color: #065f46; }
+.status-warning { background: #fef3c7; color: #92400e; }
+.status-critical { background: #fee2e2; color: #991b1b; }
+.rate-value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.clickable-row { cursor: pointer; }
+.device-detail-section { margin-top: 1rem; padding: 1rem; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb; }
+</style>
+{% endblock %}
+{% block content %}
+<nav style="margin-bottom:1rem;">
+  <a href="{{ url_for('device_select') }}" class="btn" style="background:var(--gray200);color:var(--black);">← Devices</a>
+</nav>
+
+<h2>System Health</h2>
+<div class="refresh-info" id="lastUpdate">Loading...</div>
+
+<div class="health-grid">
+  <!-- System Resources -->
+  <div class="health-card">
+    <h3>System Resources</h3>
+    <div class="metric">
+      <span class="metric-label">CPU Usage</span>
+      <span class="metric-value" id="cpu-usage">--</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="cpu-progress" style="width: 0%;"></div>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Memory Usage</span>
+      <span class="metric-value" id="memory-usage">--</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="memory-progress" style="width: 0%;"></div>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Total Memory</span>
+      <span class="metric-value" id="memory-total">--</span>
+    </div>
+  </div>
+
+  <!-- Process Info -->
+  <div class="health-card">
+    <h3>Web Server Process</h3>
+    <div class="metric">
+      <span class="metric-label">Uptime</span>
+      <span class="metric-value" id="process-uptime">--</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Memory</span>
+      <span class="metric-value" id="process-memory">--</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Threads</span>
+      <span class="metric-value" id="process-threads">--</span>
+    </div>
+  </div>
+
+  <!-- Database -->
+  <div class="health-card">
+    <h3>Database</h3>
+    <div class="metric">
+      <span class="metric-label">Status</span>
+      <span class="metric-value">
+        <span class="status-indicator" id="db-status-indicator"></span>
+        <span id="db-status">--</span>
+      </span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Total Devices</span>
+      <span class="metric-value" id="db-devices">--</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Total Samples</span>
+      <span class="metric-value" id="db-samples">--</span>
+    </div>
+    <div class="metric" id="db-error-container" style="display: none;">
+      <span class="metric-label" style="color: #ef4444;">Error</span>
+      <span class="metric-value" id="db-error" style="color: #ef4444; font-size: 0.8rem; word-break: break-word;"></span>
+    </div>
+  </div>
+
+  <!-- MQTT -->
+  <div class="health-card">
+    <h3>MQTT Broker</h3>
+    <div class="metric">
+      <span class="metric-label">Connection</span>
+      <span class="metric-value">
+        <span class="status-indicator" id="mqtt-status-indicator"></span>
+        <span id="mqtt-status">--</span>
+      </span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Stream Buffer</span>
+      <span class="metric-value" id="mqtt-buffer">--</span>
+    </div>
+  </div>
+</div>
+
+<!-- Device Activity Monitoring Section -->
+<div class="history-section">
+  <h2>Device Activity Monitor</h2>
+  <p style="color: #666; margin-bottom: 1rem;">Monitor sample rates to detect anomalies like light leaks or detector malfunctions. Normal cosmic ray detectors typically operate at 0.1-1 Hz.</p>
+  
+  <table class="device-table">
+    <thead>
+      <tr>
+        <th>Device</th>
+        <th>Status</th>
+        <th>Last Seen</th>
+        <th>1 Min Rate</th>
+        <th>5 Min Rate</th>
+        <th>60 Min Rate</th>
+        <th>Samples (1h)</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="device-rates-tbody">
+      <tr><td colspan="8" style="text-align: center; color: #999;">Loading...</td></tr>
+    </tbody>
+  </table>
+  
+  <!-- Device rate history chart (shown when clicking a device) -->
+  <div id="device-rate-history" style="display: none;">
+    <h3 id="selected-device-title" style="margin-top: 2rem; color: var(--carnelian);"></h3>
+    <div id="deviceRateChart" class="chart-container" style="height: 400px;"></div>
+    <p class="small" style="margin-top: 0.5rem; color: #666;">Hourly sample rate over the last 24 hours. High rates (>2 Hz) may indicate light leaks or detector issues.</p>
+  </div>
+</div>
+
+<!-- Historical Data Section (SAR) -->
+<div class="history-section">
+  <h2>Historical Data (SAR)</h2>
+  
+  <div class="date-selector">
+    <label for="sarDate">Select Date:</label>
+    <select id="sarDate" style="margin-left: 0.5rem;">
+      <option value="0">Today</option>
+      <option value="1">Yesterday</option>
+    </select>
+  </div>
+  
+  <div class="tabs">
+    <button class="tab-button active" data-tab="cpu-history">CPU Usage</button>
+    <button class="tab-button" data-tab="memory-history">Memory Usage</button>
+    <button class="tab-button" data-tab="disk-history">Disk I/O</button>
+  </div>
+
+  <!-- CPU History -->
+  <div id="cpu-history" class="tab-content active">
+    <div id="cpuChart" class="chart-container"></div>
+    <p class="small" style="margin-top: 0.5rem; color: #666;">CPU usage from SAR data (10-minute intervals)</p>
+  </div>
+
+  <!-- Memory History -->
+  <div id="memory-history" class="tab-content">
+    <div id="memoryChart" class="chart-container"></div>
+    <p class="small" style="margin-top: 0.5rem; color: #666;">Memory usage from SAR data (10-minute intervals)</p>
+  </div>
+
+  <!-- Disk I/O History -->
+  <div id="disk-history" class="tab-content">
+    <div id="diskChart" class="chart-container"></div>
+    <p class="small" style="margin-top: 0.5rem; color: #666;">Disk I/O from SAR data (10-minute intervals)</p>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+<script>
+// Tab switching
+document.querySelectorAll('.tab-button').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const tabName = this.dataset.tab;
+    
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(el => {
+      el.classList.remove('active');
+    });
+    
+    // Remove active class from all buttons
+    document.querySelectorAll('.tab-button').forEach(el => {
+      el.classList.remove('active');
+    });
+    
+    // Show selected tab
+    document.getElementById(tabName).classList.add('active');
+    this.classList.add('active');
+    
+    // Relayout charts when tab becomes visible
+    setTimeout(() => {
+      if (tabName === 'cpu-history') Plotly.Plots.resize('cpuChart');
+      if (tabName === 'memory-history') Plotly.Plots.resize('memoryChart');
+      if (tabName === 'disk-history') Plotly.Plots.resize('diskChart');
+    }, 100);
+  });
+});
+
+// Date selector
+document.getElementById('sarDate').addEventListener('change', function() {
+  updateHistoricalCharts();
+});
+
+// Format uptime seconds to human-readable
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (days > 0) return `${days}d ${hours}h ${mins}m`;
+  if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+// Format large numbers with commas
+function formatNumber(num) {
+  return num.toLocaleString();
+}
+
+// Update health metrics
+async function updateHealth() {
+  try {
+    const response = await fetch('/api/system/health');
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Update timestamp
+    const updateTime = new Date(data.timestamp);
+    document.getElementById('lastUpdate').textContent = 
+      `Last updated: ${updateTime.toLocaleString()}`;
+    
+    // System resources
+    document.getElementById('cpu-usage').textContent = `${data.system.cpu_percent}%`;
+    document.getElementById('cpu-progress').style.width = `${data.system.cpu_percent}%`;
+    
+    document.getElementById('memory-usage').textContent = 
+      `${data.system.memory_percent}% (${data.system.memory_used_mb} MB)`;
+    document.getElementById('memory-progress').style.width = `${data.system.memory_percent}%`;
+    
+    document.getElementById('memory-total').textContent = 
+      `${data.system.memory_total_mb} MB`;
+    
+    // Process info
+    document.getElementById('process-uptime').textContent = 
+      formatUptime(data.process.uptime_seconds);
+    document.getElementById('process-memory').textContent = 
+      `${data.process.memory_mb} MB`;
+    document.getElementById('process-threads').textContent = 
+      data.process.threads;
+    
+    // Database
+    const dbStatusEl = document.getElementById('db-status-indicator');
+    const dbStatusText = document.getElementById('db-status');
+    const dbErrorContainer = document.getElementById('db-error-container');
+    
+    if (data.database.healthy) {
+      dbStatusEl.className = 'status-indicator status-ok';
+      dbStatusText.textContent = 'Connected';
+      dbErrorContainer.style.display = 'none';
+      
+      document.getElementById('db-devices').textContent = 
+        formatNumber(data.database.total_devices);
+      document.getElementById('db-samples').textContent = 
+        formatNumber(data.database.total_samples);
+    } else {
+      dbStatusEl.className = 'status-indicator status-error';
+      dbStatusText.textContent = 'Error';
+      dbErrorContainer.style.display = 'flex';
+      document.getElementById('db-error').textContent = 
+        data.database.error || 'Unknown error';
+      document.getElementById('db-devices').textContent = 'N/A';
+      document.getElementById('db-samples').textContent = 'N/A';
+    }
+    
+    // MQTT
+    const mqttStatusEl = document.getElementById('mqtt-status-indicator');
+    const mqttStatusText = document.getElementById('mqtt-status');
+    
+    if (data.mqtt.connected) {
+      mqttStatusEl.className = 'status-indicator status-ok';
+      mqttStatusText.textContent = 'Connected';
+    } else {
+      mqttStatusEl.className = 'status-indicator status-error';
+      mqttStatusText.textContent = 'Disconnected';
+    }
+    
+    document.getElementById('mqtt-buffer').textContent = 
+      `${formatNumber(data.mqtt.stream_buffer_size)} messages`;
+    
+  } catch (error) {
+    console.error('Failed to fetch health data:', error);
+    document.getElementById('lastUpdate').textContent = 
+      `Error: ${error.message}`;
+  }
+}
+
+// Render historical charts from SAR data
+async function updateHistoricalCharts() {
+  const daysBack = parseInt(document.getElementById('sarDate').value);
+  
+  try {
+    // Fetch CPU history
+    const cpuResp = await fetch(`/api/system/sar/cpu?days_back=${daysBack}`);
+    if (!cpuResp.ok) throw new Error(`CPU fetch failed: ${cpuResp.status}`);
+    const cpuData = await cpuResp.json();
+    
+    if (cpuData.data && cpuData.data.length > 0) {
+      const timestamps = cpuData.data.map(d => new Date(d.ts));
+      const overallCpu = cpuData.data.map(d => d.overall);
+      const userCpu = cpuData.data.map(d => d.user);
+      const systemCpu = cpuData.data.map(d => d.system);
+      const iowaitCpu = cpuData.data.map(d => d.iowait);
+      
+      const cpuTraces = [
+        {
+          x: timestamps,
+          y: overallCpu,
+          name: 'Overall',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(179, 27, 27)' }
+        },
+        {
+          x: timestamps,
+          y: userCpu,
+          name: 'User',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(31, 78, 121)', dash: 'dot' },
+          visible: 'legendonly'
+        },
+        {
+          x: timestamps,
+          y: systemCpu,
+          name: 'System',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(245, 130, 32)', dash: 'dot' },
+          visible: 'legendonly'
+        }
+      ];
+      
+      const cpuLayout = {
+        title: 'CPU Usage Over Time (from SAR)',
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'CPU %', range: [0, 100] },
+        margin: { l: 60, r: 40, t: 40, b: 60 },
+        responsive: true,
+        hovermode: 'x unified'
+      };
+      
+      Plotly.newPlot('cpuChart', cpuTraces, cpuLayout, { responsive: true });
+    }
+    
+    // Fetch Memory history
+    const memResp = await fetch(`/api/system/sar/memory?days_back=${daysBack}`);
+    if (!memResp.ok) throw new Error(`Memory fetch failed: ${memResp.status}`);
+    const memData = await memResp.json();
+    
+    if (memData.data && memData.data.length > 0) {
+      const timestamps = memData.data.map(d => new Date(d.ts));
+      const memPercent = memData.data.map(d => d.memused_percent);
+      const memUsedMb = memData.data.map(d => d.kbmemused / 1024);
+      
+      const memTraces = [
+        {
+          x: timestamps,
+          y: memPercent,
+          name: 'Memory %',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(245, 130, 32)' },
+          yaxis: 'y'
+        },
+        {
+          x: timestamps,
+          y: memUsedMb,
+          name: 'Memory (MB)',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(31, 78, 121)' },
+          yaxis: 'y2'
+        }
+      ];
+      
+      const memLayout = {
+        title: 'Memory Usage Over Time (from SAR)',
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'Memory %', side: 'left', range: [0, 100] },
+        yaxis2: { title: 'Memory (MB)', overlaying: 'y', side: 'right' },
+        margin: { l: 60, r: 60, t: 40, b: 60 },
+        responsive: true,
+        hovermode: 'x unified'
+      };
+      
+      Plotly.newPlot('memoryChart', memTraces, memLayout, { responsive: true });
+    }
+    
+    // Fetch Disk I/O history
+    const diskResp = await fetch(`/api/system/sar/disk?days_back=${daysBack}`);
+    if (!diskResp.ok) throw new Error(`Disk fetch failed: ${diskResp.status}`);
+    const diskData = await diskResp.json();
+    
+    if (diskData.data && diskData.data.length > 0) {
+      const timestamps = diskData.data.map(d => new Date(d.ts));
+      const readMbs = diskData.data.map(d => d.read_mb_s);
+      const writeMbs = diskData.data.map(d => d.write_mb_s);
+      
+      const diskTraces = [
+        {
+          x: timestamps,
+          y: readMbs,
+          name: 'Read (MB/s)',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(16, 185, 129)' }
+        },
+        {
+          x: timestamps,
+          y: writeMbs,
+          name: 'Write (MB/s)',
+          type: 'scatter',
+          mode: 'lines',
+          line: { color: 'rgb(239, 68, 68)' }
+        }
+      ];
+      
+      const diskLayout = {
+        title: 'Disk I/O Over Time (from SAR)',
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'MB/s' },
+        margin: { l: 60, r: 40, t: 40, b: 60 },
+        responsive: true,
+        hovermode: 'x unified'
+      };
+      
+      Plotly.newPlot('diskChart', diskTraces, diskLayout, { responsive: true });
+    }
+  } catch (error) {
+    console.error('Failed to fetch historical data:', error);
+  }
+}
+
+// Update device activity rates
+async function updateDeviceRates() {
+  try {
+    const response = await fetch('/api/system/device-rates');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    const data = await response.json();
+    const tbody = document.getElementById('device-rates-tbody');
+    
+    if (!data.devices || data.devices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #999;">No devices found</td></tr>';
+      return;
+    }
+    
+    // Sort by rate (highest first) to show anomalies at top
+    data.devices.sort((a, b) => b.rate_1m - a.rate_1m);
+    
+    tbody.innerHTML = data.devices.map(device => {
+      const statusClass = `status-${device.status}`;
+      const statusText = device.status === 'critical' ? 'CRITICAL' : 
+                        device.status === 'warning' ? 'Warning' : 
+                        'Normal';
+      
+      const lastSeenText = device.last_seen ? 
+        new Date(device.last_seen).toLocaleString() : 'Never';
+      
+      const onlineIndicator = device.online ? 
+        '<span class="status-indicator status-ok"></span>' : 
+        '<span class="status-indicator status-error"></span>';
+      
+      return `
+        <tr class="clickable-row" onclick="showDeviceHistory('${device.device_id}', ${device.device_number})">
+          <td>${onlineIndicator} ${device.device_id} (#${device.device_number || 'N/A'})</td>
+          <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+          <td>${lastSeenText}</td>
+          <td class="rate-value">${device.rate_1m.toFixed(2)} Hz</td>
+          <td class="rate-value">${device.rate_5m.toFixed(2)} Hz</td>
+          <td class="rate-value">${device.rate_60m.toFixed(2)} Hz</td>
+          <td>${formatNumber(device.samples_60m)}</td>
+          <td><button onclick="event.stopPropagation(); showDeviceHistory('${device.device_id}', ${device.device_number})" class="btn" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">View History</button></td>
+        </tr>
+      `;
+    }).join('');
+    
+  } catch (error) {
+    console.error('Failed to fetch device rates:', error);
+    const tbody = document.getElementById('device-rates-tbody');
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444;">Error: ${error.message}</td></tr>`;
+  }
+}
+
+// Show historical rate chart for a specific device
+async function showDeviceHistory(deviceId, deviceNumber) {
+  try {
+    const response = await fetch(`/api/system/device-rates/history?device_id=${deviceId}&hours=24`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    const data = await response.json();
+    
+    // Show the history section
+    document.getElementById('device-rate-history').style.display = 'block';
+    document.getElementById('selected-device-title').textContent = 
+      `Device ${deviceId} (#${deviceNumber || 'N/A'}) - 24 Hour Sample Rate`;
+    
+    if (!data.data || data.data.length === 0) {
+      document.getElementById('deviceRateChart').innerHTML = 
+        '<p style="text-align: center; color: #999; padding: 2rem;">No data available for the last 24 hours</p>';
+      return;
+    }
+    
+    const timestamps = data.data.map(d => new Date(d.timestamp));
+    const samplesPerSec = data.data.map(d => d.samples_per_sec);
+    const avgRateHz = data.data.map(d => d.avg_rate_hz);
+    
+    const traces = [
+      {
+        x: timestamps,
+        y: samplesPerSec,
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Samples/sec (actual)',
+        line: { color: 'rgb(179, 27, 27)', width: 2 },
+        marker: { size: 4 }
+      }
+    ];
+    
+    // Add threshold lines
+    const thresholdData = [
+      { y: 2, name: 'Warning Threshold (2 Hz)', color: 'rgb(245, 158, 11)' },
+      { y: 10, name: 'Critical Threshold (10 Hz)', color: 'rgb(239, 68, 68)' }
+    ];
+    
+    thresholdData.forEach(thresh => {
+      traces.push({
+        x: [timestamps[0], timestamps[timestamps.length - 1]],
+        y: [thresh.y, thresh.y],
+        type: 'scatter',
+        mode: 'lines',
+        name: thresh.name,
+        line: { color: thresh.color, width: 1, dash: 'dash' },
+        hoverinfo: 'skip'
+      });
+    });
+    
+    const layout = {
+      title: '',
+      xaxis: { title: 'Time' },
+      yaxis: { 
+        title: 'Sample Rate (Hz)', 
+        type: 'log',  // Log scale to better show both normal and anomalous rates
+        autorange: true
+      },
+      margin: { l: 60, r: 40, t: 20, b: 60 },
+      responsive: true,
+      hovermode: 'x unified',
+      showlegend: true,
+      legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.8)' }
+    };
+    
+    Plotly.newPlot('deviceRateChart', traces, layout, { responsive: true });
+    
+    // Scroll to the chart
+    document.getElementById('device-rate-history').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+  } catch (error) {
+    console.error('Failed to fetch device history:', error);
+    alert(`Failed to load device history: ${error.message}`);
+  }
+}
+
+// Initial load
+updateHealth();
+updateDeviceRates();
+updateHistoricalCharts().catch(err => console.error('Initial chart load error:', err));
+
+// Refresh health metrics every 5 seconds
+setInterval(updateHealth, 5000);
+
+// Refresh device rates every 30 seconds (reduced from 10s to lower CPU impact)
+setInterval(updateDeviceRates, 30000);
+
+// Also refresh when page becomes visible
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    updateHealth();
+    updateDeviceRates();
+  }
+});
+</script>
+{% endblock %}

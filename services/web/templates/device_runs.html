@@ -4,11 +4,12 @@
 <style>
 .row { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; }
 .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; }
-table { border-collapse: collapse; width: 100%; }
-th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; font-size: .9rem; text-align: left; }
+/* Make wide tables scroll within the card */
+.table-container { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+table { border-collapse: collapse; width: 100%; table-layout: auto; }
+th, td { padding: .35rem .5rem; border-bottom: 1px solid #eee; border-right: 1px solid #eee; font-size: .9rem; text-align: left; white-space: nowrap; }
 th { background: #fafafa; position: sticky; top: 0; }
-tbody { display: block; max-height: 420px; overflow: auto; }
-thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
+.table-wrapper { max-height: 420px; overflow-y: auto; overflow-x: auto; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: .85rem; }
 </style>
 {% endblock %}
@@ -24,17 +25,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
   <div class="card">
     <h3>Known Runs</h3>
     <div class="small" id="status">Loading…</div>
+    <div class="table-wrapper">
     <table>
       <thead>
         <tr>
-          <th style="width: 14rem;">base_ts</th>
-          <th style="width: 10rem;">run_key</th>
-          <th>meta</th>
-          <th style="width: 8rem;">CSV</th>
+          <th style="width: auto; min-width: 4rem;">run</th>
+          <th style="width: auto; min-width: 10rem;">Run start time</th>
+          <th style="width: auto; min-width: 5rem;">Baseline</th>          
+          <th style="width: auto; min-width: 5rem;">Threshold</th>          
+          <th style="width: auto; min-width: 3.5rem;">Leader</th>
+          <th style="width: auto; min-width: 5rem;">Reset<br>threshold</th>
+          <th class="actions" style="width: auto; min-width: 9rem; text-align: left;">Actions</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    </div>
   </div>
   <div class="card">
     <h3>Notes</h3>
@@ -65,8 +71,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
     status.textContent = `${rows.length} run(s)`;
     // rows are newest-first (base_ts desc). For each run, end = start of the next newer run.
     tbody.innerHTML = rows.map((r, idx) => {
-      let meta = r.meta;
-      if (meta && typeof meta === 'object') meta = JSON.stringify(meta);
       let localTs = '';
       try {
         if (r.base_ts) {
@@ -74,14 +78,29 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
           if (!isNaN(d.getTime())) localTs = d.toLocaleString();
         }
       } catch {}
+      const runLabel = (r.run_key ? String(r.run_key) : (r.id != null ? String(r.id) : ''));
+      // Parse meta as JSON to extract fields (may be string or object)
+      let metaObj = null;
+      try {
+        if (r.meta && typeof r.meta === 'string') metaObj = JSON.parse(r.meta);
+        else if (r.meta && typeof r.meta === 'object') metaObj = r.meta;
+      } catch {}
+      const baseline = metaObj && metaObj.baseline != null ? String(metaObj.baseline) : '';
+      const threshold = metaObj && metaObj.threshold != null ? String(metaObj.threshold) : '';
+      const isLeader = metaObj && typeof metaObj.is_leader !== 'undefined' ? (metaObj.is_leader ? 'Y' : 'N') : '';
+      const resetThr = metaObj && metaObj.reset_threshold != null ? String(metaObj.reset_threshold) : '';
       const startIso = r.base_ts || '';
       const endIso = (idx > 0 && rows[idx - 1] && rows[idx - 1].base_ts) ? rows[idx - 1].base_ts : '';
       const href = `/api/export/${encodeURIComponent(deviceId)}.csv` + (startIso ? `?start=${encodeURIComponent(startIso)}${endIso ? `&end=${encodeURIComponent(endIso)}` : ''}` : '');
+      const analyzeHref = `/device/${encodeURIComponent(deviceId)}/analyze${r.id != null ? `?run_id=${encodeURIComponent(r.id)}` : ''}`;
       return `<tr>
+        <td><code>${runLabel ? 'Run ' + escapeHtml(runLabel) : ''}</code></td>
         <td><code>${escapeHtml(localTs)}</code></td>
-        <td><code>${escapeHtml(r.run_key || '')}</code></td>
-        <td><code>${escapeHtml(meta || '')}</code></td>
-        <td>${startIso ? `<a class="btn" href="${href}">Download</a>` : ''}</td>
+        <td><code>${escapeHtml(baseline)}</code></td>
+        <td><code>${escapeHtml(threshold)}</code></td>
+        <td><code>${escapeHtml(isLeader)}</code></td>
+        <td><code>${escapeHtml(resetThr)}</code></td>
+        <td class="actions" style="text-align:left; white-space: nowrap;">${startIso ? `<a class="btn" href="${href}">CSV</a>` : ''} <a class="btn" style="background:var(--gray200);color:var(--black);" href="${analyzeHref}">Analyze</a></td>
       </tr>`;
     }).join('');
   }

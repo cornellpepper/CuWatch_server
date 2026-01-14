@@ -52,8 +52,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
     <table id="statusKv" class="table table-sm table-striped align-middle mb-0">
       <thead class="table-light">
         <tr>
-          <th style="width: 220px;">Key</th>
-          <th>Value</th>
+          <th style="width: auto; min-width: 4rem;">Key</th>
+          <th style="width: auto; min-width: 4rem;">Value</th>
         </tr>
       </thead>
       <tbody id="statusKvBody"></tbody>
@@ -66,6 +66,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       <h3>Live Rate (Hz)</h3>
       <div class="stat"><span id="rate">–</span></div>
       <div class="small">Computed using absolute timestamps (<code>ts</code>) over a fixed one-minute trailing window.</div>
+      <div class="small">Note: API returns up to 50,000 samples per request.</div>
       <div class="controls" style="margin-top:.5rem">
         <label>Poll (s)
           <input type="number" id="pollSec" min="1" value="5">
@@ -97,6 +98,14 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
             <input type="number" id="thresholdInput" min="0" max="4095" step="1" placeholder="e.g. 2048">
             <button id="sendThreshold" class="btn">Send</button>
             <span id="thresholdStatus" class="small"></span>
+          </td>
+        </tr>
+        <tr>
+          <th>Reset Threshold (0–4095)</th>
+          <td>
+            <input type="number" id="resetThresholdInput" min="0" max="4095" step="1" placeholder="e.g. 1024">
+            <button id="sendResetThreshold" class="btn">Send</button>
+            <span id="resetThresholdStatus" class="small"></span>
           </td>
         </tr>
         <tr>
@@ -149,6 +158,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/rate.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script>
@@ -201,51 +211,8 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         }
       });
 
-      function computeRates(rows, windowSec) {
-        // rows are typically newest-first from /api; normalize to time-ascending and drop bad rows
-        const YEAR2000 = 946684800; // seconds since epoch
-        const asc = [];
-        for (const r of [...rows]) {
-          if (!r || r.muon_count == null || !r.ts) continue;
-          const tSec = new Date(r.ts).getTime() / 1000; // seconds
-          if (!isFinite(tSec) || tSec < YEAR2000) continue;
-          asc.push({ t: tSec, c: Number(r.muon_count) });
-        }
-        // sort ascending by time; break ties with muon_count
-        asc.sort((a,b) => (a.t !== b.t) ? (a.t - b.t) : (a.c - b.c));
-        if (asc.length < 2) return [];
-
-        // Exact-width sliding window using left-boundary interpolation.
-        // For each point at time ti, compute rate over [ti - windowSec, ti].
-        // Skip outputs until we have a full window of history to eliminate the edge spike.
-        const rates = [];
-        let l = 0; // left pointer (last point with t <= tLeft)
-        for (let i = 0; i < asc.length; i++) {
-          const ti = asc[i].t;
-          const tLeft = ti - windowSec;
-          // Advance left pointer to the last point with t <= tLeft
-          while (l + 1 < asc.length && asc[l + 1].t <= tLeft) l++;
-          if (tLeft < asc[0].t) continue; // not enough history for a full window
-          if (l >= i) continue; // need at least one interval before i
-
-          // Interpolate cumulative count at tLeft between asc[l] and asc[l+1] (if available)
-          const tL = asc[l].t, cL = asc[l].c;
-          let cLeft = cL;
-          if (l + 1 <= i) {
-            const tR = asc[l + 1].t, cR = asc[l + 1].c;
-            if (tR > tL && tLeft > tL) {
-              const f = (tLeft - tL) / (tR - tL);
-              cLeft = cL + f * (cR - cL);
-            }
-          }
-
-          let dc = asc[i].c - cLeft;
-          if (dc < 0) dc = 0; // guard counter reset
-          const r = dc / windowSec;
-          if (isFinite(r)) rates.push({ t: ti, r });
-        }
-        return rates;
-      }
+      // Use shared utility
+      const computeRates = window.computeSlidingRates;
 
       // Replaces drawPlot
       function updateChart(rates) {
@@ -401,13 +368,20 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
       }
 
-      // Update threshold input placeholder and validation when status changes
+      // Update threshold and reset_threshold input placeholders and validation when status changes
       function updateThresholdValidation() {
         if (currentStatus && currentStatus.reset_threshold != null) {
           const resetThreshold = Number(currentStatus.reset_threshold);
           if (isFinite(resetThreshold)) {
             elThr.placeholder = `e.g. ${Math.max(2048, resetThreshold + 100)} (> ${resetThreshold})`;
             elThr.min = resetThreshold + 1;
+          }
+        }
+        if (currentStatus && currentStatus.threshold != null) {
+          const threshold = Number(currentStatus.threshold);
+          if (isFinite(threshold)) {
+            elResetThr.placeholder = `e.g. ${Math.max(0, threshold - 100)} (< ${threshold})`;
+            elResetThr.max = threshold - 1;
           }
         }
       }
@@ -490,6 +464,9 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       const elThr = document.getElementById('thresholdInput');
       const elThrBtn = document.getElementById('sendThreshold');
       const elThrStatus = document.getElementById('thresholdStatus');
+      const elResetThr = document.getElementById('resetThresholdInput');
+      const elResetThrBtn = document.getElementById('sendResetThreshold');
+      const elResetThrStatus = document.getElementById('resetThresholdStatus');
       const elShutdownBtn = document.getElementById('sendShutdown');
       const elShutdownStatus = document.getElementById('shutdownStatus');
       const elNewRunBtn = document.getElementById('sendNewRun');
@@ -538,6 +515,47 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
       }
 
       elThrBtn.addEventListener('click', sendThreshold);
+
+      async function sendResetThreshold() {
+        elResetThrStatus.textContent = '';
+        const raw = elResetThr.value.trim();
+        if (!raw) {
+          elResetThrStatus.textContent = 'Enter a value';
+          return;
+        }
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < 0 || n > 4095) {
+          elResetThrStatus.textContent = 'Must be integer 0–4095';
+          return;
+        }
+
+        // Check against threshold from current status if available
+        if (currentStatus && currentStatus.threshold != null) {
+          const threshold = Number(currentStatus.threshold);
+          if (isFinite(threshold) && n >= threshold) {
+            elResetThrStatus.textContent = `Must be below threshold (${threshold})`;
+            return;
+          }
+        }
+
+        try {
+          const res = await fetch(`/api/control/${encodeURIComponent(deviceId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reset_threshold: n })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            elResetThrStatus.textContent = data.error || 'Failed to send';
+          } else {
+            elResetThrStatus.textContent = 'Sent';
+          }
+        } catch (e) {
+          elResetThrStatus.textContent = 'Network error';
+        }
+      }
+
+      elResetThrBtn.addEventListener('click', sendResetThreshold);
 
       function withCmdId(obj) {
         try {

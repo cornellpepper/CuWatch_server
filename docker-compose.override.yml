@@ -3,5 +3,10 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  bridge:
+    environment:
+      # Debug logging is OFF by default; enable by exporting BRIDGE_DEBUG=1
+      BRIDGE_DEBUG: ${BRIDGE_DEBUG:-0}
+
 volumes:
   pgdata:
