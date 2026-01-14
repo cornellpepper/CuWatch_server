@@ -14,14 +14,15 @@ Telemetry stored as typed columns; dashboard shows a **rolling event rate (Hz)**
 Pico W client compatibility:
 - Device ID format: Pico W code publishes to zero-padded numeric IDs (e.g., `telemetry/003`). The server accepts any string as `device_id`; both `dev-001` and `003` are fine.
 - Telemetry fields: Pico W sends `device_number, muon_count, adc_v, temp_adc_v, ts, wait_cnt, coincidence` and may include `t_ms` (ignored by server). `dt` is optional and can be omitted.
+- First-event run metadata: The first event of a run may include `run_start` (ISO8601) plus `baseline, threshold, reset_threshold, is_leader` to seed server-side run metadata. These fields are typically sent once per run and ignored on later events.
 - Run base announcement: On the first event, Pico W may include `run_start` as ISO8601; the server accepts `run_base_ts | run_start_ts | run_start`.
 - Status: Pico W publishes `status/<device_id>` with a JSON payload (e.g., `rate, muon_count, threshold, reset_threshold, baseline, runtime`); the server uses it for liveness only.
-- Control: The device subscribes to `control/<device_id>/set` and honors JSON commands `{ "threshold": int }`, `{ "new_run": true }`, `{ "shutdown": true }`, `{ "make_leader": true|false }`. It also tolerates legacy string commands `"shutdown"` and `"new_run"`.
+- Control: The device subscribes to `control/<device_id>/set` and honors JSON commands `{ "threshold": int }`, `{ "reset_threshold": int }`, `{ "new_run": true }`, `{ "shutdown": true }`, `{ "make_leader": true|false }`. `new_run` asks the device to begin a fresh run and choose a new base timestamp/run key; legacy string commands `"shutdown"` and `"new_run"` are still tolerated.
 
 ## Device Integration (Pico W)
 
 Reference implementation: Pico W client publishes/consumes the topics above. See the client repo for full code and hardware details:
-- https://github.com/cornellpepper/CuWatch_code (branch `mqtt_dev`, file `src/asynchio5.py`)
+- https://github.com/cornellpepper/CuWatch_code (branch `main`, file `src/asynchio5.py`)
 
 Minimal MicroPython publish example (update `BROKER` to your host IP):
 
@@ -96,6 +97,13 @@ Optional run base announcement (to support relative-only devices):
 ```
 
 Accepted keys are `run_base_ts`, `run_start_ts`, or `run_start` (ISO8601/epoch). When a subsequent telemetry message only has `dt`, the bridge computes `ts = base + dt`.
+
+### Runs and base timestamps
+
+- Base time: The bridge treats the first `run_base_ts | run_start_ts | run_start` it sees for a device as the run base and upserts a row in `runs` with that `base_ts`. Missing or pre-2000 timestamps are ignored; the bridge will fall back to `now` if no valid base exists.
+- Derived timestamps: If a telemetry has no absolute `ts` but includes `dt`, the bridge reconstructs `ts = base + dt`. If `dt` is missing/invalid, it stores `dt=0` and uses the best available timestamp.
+- Metadata on first event: `baseline`, `threshold`, `reset_threshold`, and `is_leader` are accepted on the first event of a run and stored in `runs.meta` and `devices.meta` for later display. An optional `run_key` (string) from the device is also stored when present.
+- New runs: Sending the control message `{ "new_run": true }` (or a device restart) should emit a fresh first event with a new base time and metadata. Each run is listed via `GET /api/device/<id>/runs` and tied to samples through `base_ts`.
 
 ## Services
 
@@ -175,17 +183,21 @@ docker compose exec db psql -U postgres -d iot
 Health checks and quick diagnostics:
 
 ```bash
-# Web health endpoint
+# Web health endpoint (liveness)
 curl -fsS http://localhost/healthz
 
 # Subscribe to MQTT topics
 mosquitto_sub -h localhost -t 'telemetry/#' -v
 
-# Access system health dashboard (historical CPU/memory/disk)
+# System health dashboard (CPU, memory, disk I/O, MQTT status, DB status, device activity rates)
 # Visit http://localhost/system in your browser
 ```
 
-**System Health & Monitoring**: The `/system` page displays real-time and historical performance metrics from SAR (System Activity Report) data. See [docs/SAR_INTEGRATION.md](docs/SAR_INTEGRATION.md) for details on system dependencies and how to migrate to other Linux distributions.
+**System Health & Monitoring**
+
+- UI: `/system` shows real-time metrics, MQTT status, DB status, and device activity monitor (rate anomalies/light leaks), plus historical CPU/memory/disk I/O from SAR.
+- JSON: `/api/system/health` for basic liveness + counts; `/api/system/device-rates` for per-device rates and anomaly flags; `/api/system/device-rates/history?device_id=<id>` for hourly rate history.
+- Requirements: `sysstat` package on host and `/var/log/sysstat` mounted read-only (see [docs/SAR_INTEGRATION.md](docs/SAR_INTEGRATION.md)).
 
 Backup and restore the dev database:
 
@@ -231,6 +243,27 @@ Where the database lives:
 docker volume ls
 docker volume inspect pgdata
 ```
+
+### Rotate/replace the database volume (e.g., each semester)
+
+If you want a fresh database while keeping old data, create a new host folder (or named volume) and update your override file to point at it. Example using a bind mount with a semester-specific folder:
+
+```yaml
+# docker-compose.override.yml
+services:
+  db:
+    volumes:
+      - ./data/postgres_spring2026:/var/lib/postgresql/data
+```
+
+Rotation steps:
+1) Stop the stack: `docker compose down` (or `stop` to keep containers).
+2) (Optional) Backup old DB: `docker compose exec -T db pg_dump -U postgres -d iot > backup.sql`.
+3) Create the new host directory, e.g., `mkdir -p data/postgres_spring2026`.
+4) Edit `docker-compose.override.yml` to reference the new folder (or change the named volume name).
+5) Start the stack: `docker compose up -d --build`.
+
+Using a named volume instead of a bind mount works the same way—just change the volume name (e.g., `pgdata_spring2026`) in both `services.db.volumes` and the top-level `volumes:` block. The old volume remains intact for archival; the new name gives you a fresh database.
 
 Query the database from CLI:
 
@@ -337,6 +370,7 @@ mosquitto_pub -h localhost -t telemetry/dev-001 -m '{
   - Content-Type: `application/json`.
   - Accepted payloads:
     - `{ "threshold": <int 0..4095> }` — sets the discriminator threshold.
+    - `{ "reset_threshold": <int 0..4095> }` — sets the reset threshold (must be strictly less than the effective threshold; server validates using provided `threshold` or last known value).
     - `"shutdown"` — request a clean shutdown.
     - `"new_run"` — request starting a new run (device chooses semantics).
     - `{ "make_leader": true|false }` — request leader election state.
