@@ -338,17 +338,24 @@ async function updateHistoricalCharts() {
   const daysBack = parseInt(document.getElementById('sarDate').value);
   
   try {
+    // Clear all charts first
+    Plotly.purge('cpuChart');
+    Plotly.purge('memoryChart');
+    Plotly.purge('diskChart');
+    
     // Fetch CPU history
     const cpuResp = await fetch(`/api/system/sar/cpu?days_back=${daysBack}`);
     if (!cpuResp.ok) throw new Error(`CPU fetch failed: ${cpuResp.status}`);
     const cpuData = await cpuResp.json();
     
     if (cpuData.data && cpuData.data.length > 0) {
-      const timestamps = cpuData.data.map(d => new Date(d.ts));
-      const overallCpu = cpuData.data.map(d => d.overall);
-      const userCpu = cpuData.data.map(d => d.user);
-      const systemCpu = cpuData.data.map(d => d.system);
-      const iowaitCpu = cpuData.data.map(d => d.iowait);
+      // Sort data by timestamp (ascending)
+      const sortedData = [...cpuData.data].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+      const timestamps = sortedData.map(d => new Date(d.ts));
+      const overallCpu = sortedData.map(d => d.overall);
+      const userCpu = sortedData.map(d => d.user);
+      const systemCpu = sortedData.map(d => d.system);
+      const iowaitCpu = sortedData.map(d => d.iowait);
       
       const cpuTraces = [
         {
@@ -365,8 +372,7 @@ async function updateHistoricalCharts() {
           name: 'User',
           type: 'scatter',
           mode: 'lines',
-          line: { color: 'rgb(31, 78, 121)', dash: 'dot' },
-          visible: 'legendonly'
+          line: { color: 'rgb(31, 78, 121)', dash: 'dot' }
         },
         {
           x: timestamps,
@@ -374,8 +380,7 @@ async function updateHistoricalCharts() {
           name: 'System',
           type: 'scatter',
           mode: 'lines',
-          line: { color: 'rgb(245, 130, 32)', dash: 'dot' },
-          visible: 'legendonly'
+          line: { color: 'rgb(16, 185, 129)', dash: 'dot' }
         }
       ];
       
@@ -397,9 +402,11 @@ async function updateHistoricalCharts() {
     const memData = await memResp.json();
     
     if (memData.data && memData.data.length > 0) {
-      const timestamps = memData.data.map(d => new Date(d.ts));
-      const memPercent = memData.data.map(d => d.memused_percent);
-      const memUsedMb = memData.data.map(d => d.kbmemused / 1024);
+      // Sort data by timestamp (ascending)
+      const sortedData = [...memData.data].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+      const timestamps = sortedData.map(d => new Date(d.ts));
+      const memPercent = sortedData.map(d => d.memused_percent);
+      const memUsedMb = sortedData.map(d => d.kbmemused / 1024);
       
       const memTraces = [
         {
@@ -441,9 +448,11 @@ async function updateHistoricalCharts() {
     const diskData = await diskResp.json();
     
     if (diskData.data && diskData.data.length > 0) {
-      const timestamps = diskData.data.map(d => new Date(d.ts));
-      const readMbs = diskData.data.map(d => d.read_mb_s);
-      const writeMbs = diskData.data.map(d => d.write_mb_s);
+      // Sort data by timestamp (ascending)
+      const sortedData = [...diskData.data].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+      const timestamps = sortedData.map(d => new Date(d.ts));
+      const readMbs = sortedData.map(d => d.read_mb_s);
+      const writeMbs = sortedData.map(d => d.write_mb_s);
       
       const diskTraces = [
         {
@@ -497,7 +506,15 @@ async function updateDeviceRates() {
     // Sort by rate (highest first) to show anomalies at top
     data.devices.sort((a, b) => b.rate_1m - a.rate_1m);
     
-    tbody.innerHTML = data.devices.map(device => {
+    // Filter out devices with 0 samples in the last hour
+    const activeDevices = data.devices.filter(device => device.samples_60m > 0);
+    
+    if (activeDevices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #999;">No active devices in the last hour</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = activeDevices.map(device => {
       const statusClass = `status-${device.status}`;
       const statusText = device.status === 'critical' ? 'CRITICAL' : 
                         device.status === 'warning' ? 'Warning' : 
