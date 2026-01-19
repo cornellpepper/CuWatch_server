@@ -502,7 +502,7 @@ def create_app():
     @app.get('/api/system/sar/cpu')
     def sar_cpu():
         """SAR CPU usage history"""
-        days_back = request.args.get('days_back', default='0', type=int)
+        days_back = request.args.get('days_back', default=0, type=int)
         data = SARParser.get_cpu_history(days_back=days_back)
         return jsonify({
             'metric_type': 'cpu',
@@ -514,7 +514,7 @@ def create_app():
     @app.get('/api/system/sar/memory')
     def sar_memory():
         """SAR memory usage history"""
-        days_back = request.args.get('days_back', default='0', type=int)
+        days_back = request.args.get('days_back', default=0, type=int)
         data = SARParser.get_memory_history(days_back=days_back)
         return jsonify({
             'metric_type': 'memory',
@@ -526,7 +526,7 @@ def create_app():
     @app.get('/api/system/sar/disk')
     def sar_disk():
         """SAR disk I/O history"""
-        days_back = request.args.get('days_back', default='0', type=int)
+        days_back = request.args.get('days_back', default=0, type=int)
         data = SARParser.get_disk_io_history(days_back=days_back)
         return jsonify({
             'metric_type': 'disk_io',

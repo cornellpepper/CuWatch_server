@@ -1,7 +1,7 @@
 services:
   db:
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_spring2026:/var/lib/postgresql/data
 
   bridge:
     environment:
@@ -9,4 +9,4 @@ services:
       BRIDGE_DEBUG: ${BRIDGE_DEBUG:-0}
 
 volumes:
-  pgdata:
+  pgdata_spring2026:
