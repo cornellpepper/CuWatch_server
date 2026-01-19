@@ -377,6 +377,15 @@ mosquitto_pub -h localhost -t telemetry/dev-001 -m '{
   - Responses:
     - `200 { "ok": true }` on publish accept.
     - `400` with `{ "ok": false, "error": "..." }` for bad input (e.g., invalid threshold).
+- `GET /api/system/sar/cpu?days_back=0` — CPU usage history from SAR data.
+  - `days_back`: number of days back to retrieve (default 0 for today).
+  - Returns array of samples with timestamp, user%, system%, iowait%, and other metrics.
+- `GET /api/system/sar/memory?days_back=0` — Memory usage history from SAR data.
+  - `days_back`: number of days back to retrieve (default 0 for today).
+  - Returns array of samples with timestamp, memused%, memfree%, and other metrics.
+- `GET /api/system/sar/disk?days_back=0` — Disk I/O history from SAR data.
+  - `days_back`: number of days back to retrieve (default 0 for today).
+  - Returns array of disk I/O samples with read/write statistics per device.
 
 ## Database (tables)
 
