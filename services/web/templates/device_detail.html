@@ -133,6 +133,26 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
             <span id="makeLeaderStatus" class="small"></span>
           </td>
         </tr>
+        <tr>
+          <th>Timed Session</th>
+          <td>
+            <select id="sessionDurationSel">
+              <option value="300">5 min</option>
+              <option value="600">10 min</option>
+              <option value="1800">30 min</option>
+              <option value="3600" selected>1 hour</option>
+              <option value="7200">2 hours</option>
+              <option value="14400">4 hours</option>
+              <option value="28800">8 hours</option>
+              <option value="86400">24 hours</option>
+              <option value="172800">2 days</option>
+              <option value="604800">7 days</option>
+            </select>
+            <button id="startSession" class="btn">Start</button>
+            <button id="stopSession" class="btn danger" style="display:none;">Stop</button>
+            <span id="sessionStatus" class="small"></span>
+          </td>
+        </tr>
       </tbody>
     </table>
     <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (non‑retained commands).</div>
@@ -598,5 +618,99 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         // Send an object and include a transient command id for de-duplication
         sendJsonPayload(withCmdId({ make_leader: val }), elMakeLeaderStatus);
       });
+
+      // Timed Session controls
+      const elSessionDurationSel = document.getElementById('sessionDurationSel');
+      const elStartSession = document.getElementById('startSession');
+      const elStopSession = document.getElementById('stopSession');
+      const elSessionStatus = document.getElementById('sessionStatus');
+      let sessionCheckTimer = null;
+
+      function formatDuration(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+
+      async function checkSessionStatus() {
+        try {
+          const res = await fetch(`/api/device/${encodeURIComponent(deviceId)}/session`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          
+          if (data.active) {
+            elStartSession.style.display = 'none';
+            elStopSession.style.display = 'inline-block';
+            elSessionStatus.textContent = `Running (${formatDuration(data.remaining_s)} remaining)`;
+            
+            // Continue polling while active
+            if (!sessionCheckTimer) {
+              sessionCheckTimer = setInterval(checkSessionStatus, 1000);
+            }
+          } else {
+            elStartSession.style.display = 'inline-block';
+            elStopSession.style.display = 'none';
+            elSessionStatus.textContent = '';
+            
+            // Stop polling
+            if (sessionCheckTimer) {
+              clearInterval(sessionCheckTimer);
+              sessionCheckTimer = null;
+            }
+          }
+        } catch (e) {
+          console.error('Session status check error:', e);
+        }
+      }
+
+      elStartSession.addEventListener('click', async () => {
+        const duration_s = Number(elSessionDurationSel.value);
+        if (!duration_s || duration_s <= 0) {
+          elSessionStatus.textContent = 'Invalid duration';
+          return;
+        }
+        
+        try {
+          elSessionStatus.textContent = 'Starting...';
+          const res = await fetch(`/api/device/${encodeURIComponent(deviceId)}/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration_s })
+          });
+          const data = await res.json().catch(() => ({}));
+          
+          if (!res.ok || data.ok === false) {
+            elSessionStatus.textContent = data.error || 'Failed to start';
+          } else {
+            elSessionStatus.textContent = `Started (${formatDuration(duration_s)} total)`;
+            checkSessionStatus(); // Update UI immediately
+          }
+        } catch (e) {
+          elSessionStatus.textContent = 'Network error';
+        }
+      });
+
+      elStopSession.addEventListener('click', async () => {
+        try {
+          elSessionStatus.textContent = 'Stopping...';
+          const res = await fetch(`/api/device/${encodeURIComponent(deviceId)}/session`, {
+            method: 'DELETE'
+          });
+          const data = await res.json().catch(() => ({}));
+          
+          if (!res.ok || data.ok === false) {
+            elSessionStatus.textContent = data.error || 'Failed to stop';
+          } else {
+            elSessionStatus.textContent = 'Stopped';
+            checkSessionStatus(); // Update UI immediately
+          }
+        } catch (e) {
+          elSessionStatus.textContent = 'Network error';
+        }
+      });
+
+      // Check session status on page load
+      checkSessionStatus();
     </script>
 {% endblock %}

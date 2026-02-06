@@ -10,10 +10,26 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps # noqa: F401
 from sqlalchemy import func
 import psutil
+import threading
+import time
 
 def login_required(view_func):
     # Authentication disabled: pass-through decorator
     return view_func
+
+# Session tracking infrastructure for timed runs
+_active_sessions = {}  # device_id -> {'stop_time': timestamp, 'duration_s': int, 'timer': threading.Timer}
+_sessions_lock = threading.Lock()
+
+def _stop_session_after_delay(device_id, duration_s):
+    """Background task that sends shutdown after the specified duration"""
+    time.sleep(duration_s)
+    with _sessions_lock:
+        if device_id in _active_sessions:
+            # Send shutdown command
+            publish_control(device_id, {"shutdown": True}, retain=False)
+            del _active_sessions[device_id]
+            print(f"[Timed Session] Auto-shutdown sent to {device_id} after {duration_s}s")
 
 def create_app():
     app = Flask(__name__)
@@ -152,16 +168,47 @@ def create_app():
     @app.get('/api/device/<device_id>/runs')
     def device_runs(device_id):
         rows = Run.query.filter_by(device_id=device_id).order_by(Run.base_ts.desc()).all()
-        return jsonify([
-            {
+        result = []
+        for r in rows:
+            # Parse meta to extract run_end_ts or run_end_inferred_ts
+            meta_dict = r.meta
+            if isinstance(meta_dict, str):
+                try:
+                    import json as _json
+                    meta_dict = _json.loads(meta_dict)
+                except Exception:
+                    meta_dict = {}
+            elif not isinstance(meta_dict, dict):
+                meta_dict = {}
+            
+            # Calculate duration if we have an end timestamp
+            duration_s = None
+            end_inferred = False
+            run_end_ts = meta_dict.get('run_end_ts')
+            if not run_end_ts:
+                run_end_ts = meta_dict.get('run_end_inferred_ts')
+                end_inferred = True
+            
+            if run_end_ts and r.base_ts:
+                try:
+                    if isinstance(run_end_ts, str):
+                        end_dt = datetime.fromisoformat(run_end_ts.replace('Z', '+00:00'))
+                    else:
+                        end_dt = run_end_ts
+                    duration_s = (end_dt - r.base_ts).total_seconds()
+                except Exception:
+                    pass
+            
+            result.append({
                 "id": r.id,
                 "device_id": r.device_id,
                 "base_ts": r.base_ts.isoformat() if r.base_ts else None,
                 "run_key": r.run_key,
                 "meta": r.meta,
-            }
-            for r in rows
-        ])
+                "duration_s": duration_s,
+                "duration_inferred": end_inferred if duration_s is not None else None,
+            })
+        return jsonify(result)
 
     @app.route('/api/samples/<device_id>')
     def samples(device_id):
@@ -303,6 +350,95 @@ def create_app():
 
         publish_control(device_id, payload, retain=False)
         return jsonify({'ok': True})
+
+    @app.post('/api/device/<device_id>/session')
+    def start_session(device_id):
+        """Start a timed session: publish new_run, schedule shutdown after duration"""
+        payload = request.get_json(force=True, silent=True) or {}
+        
+        # Validate duration_s parameter
+        try:
+            duration_s = int(payload.get('duration_s', 0))
+        except Exception:
+            return jsonify({'ok': False, 'error': 'duration_s must be an integer'}), 400
+        
+        if duration_s <= 0:
+            return jsonify({'ok': False, 'error': 'duration_s must be positive'}), 400
+        
+        # Max duration: 7 days
+        if duration_s > 604800:
+            return jsonify({'ok': False, 'error': 'duration_s must be <= 604800 (7 days)'}), 400
+        
+        with _sessions_lock:
+            # Cancel any existing session for this device
+            if device_id in _active_sessions:
+                old_timer = _active_sessions[device_id].get('timer')
+                if old_timer:
+                    old_timer.cancel()
+                del _active_sessions[device_id]
+            
+            # Publish new_run to start the session
+            publish_control(device_id, {"new_run": True}, retain=False)
+            
+            # Start background timer for shutdown
+            stop_time = time.time() + duration_s
+            timer_thread = threading.Thread(
+                target=_stop_session_after_delay, 
+                args=(device_id, duration_s), 
+                daemon=True
+            )
+            timer_thread.start()
+            
+            _active_sessions[device_id] = {
+                'stop_time': stop_time,
+                'duration_s': duration_s,
+                'timer': timer_thread
+            }
+        
+        return jsonify({
+            'ok': True, 
+            'duration_s': duration_s,
+            'stop_time': datetime.fromtimestamp(stop_time, tz=timezone.utc).isoformat()
+        })
+    
+    @app.delete('/api/device/<device_id>/session')
+    def stop_session(device_id):
+        """Stop active session: send shutdown immediately and clear session"""
+        with _sessions_lock:
+            if device_id not in _active_sessions:
+                return jsonify({'ok': False, 'error': 'No active session'}), 404
+            
+            # Cancel the timer
+            timer = _active_sessions[device_id].get('timer')
+            if timer and hasattr(timer, 'cancel'):
+                # Thread doesn't have cancel, so we just remove from dict
+                # The thread will check and find it's gone
+                pass
+            
+            del _active_sessions[device_id]
+        
+        # Send shutdown command
+        publish_control(device_id, {"shutdown": True}, retain=False)
+        
+        return jsonify({'ok': True})
+    
+    @app.get('/api/device/<device_id>/session')
+    def get_session(device_id):
+        """Get current session status and remaining time"""
+        with _sessions_lock:
+            if device_id not in _active_sessions:
+                return jsonify({'active': False})
+            
+            session_data = _active_sessions[device_id]
+            stop_time = session_data['stop_time']
+            remaining_s = max(0, int(stop_time - time.time()))
+            
+            return jsonify({
+                'active': True,
+                'duration_s': session_data['duration_s'],
+                'remaining_s': remaining_s,
+                'stop_time': datetime.fromtimestamp(stop_time, tz=timezone.utc).isoformat()
+            })
 
     @app.get('/healthz')
     def health():

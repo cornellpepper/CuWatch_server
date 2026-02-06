@@ -104,6 +104,11 @@ Accepted keys are `run_base_ts`, `run_start_ts`, or `run_start` (ISO8601/epoch).
 - Derived timestamps: If a telemetry has no absolute `ts` but includes `dt`, the bridge reconstructs `ts = base + dt`. If `dt` is missing/invalid, it stores `dt=0` and uses the best available timestamp.
 - Metadata on first event: `baseline`, `threshold`, `reset_threshold`, and `is_leader` are accepted on the first event of a run and stored in `runs.meta` and `devices.meta` for later display. An optional `run_key` (string) from the device is also stored when present.
 - New runs: Sending the control message `{ "new_run": true }` (or a device restart) should emit a fresh first event with a new base time and metadata. Each run is listed via `GET /api/device/<id>/runs` and tied to samples through `base_ts`.
+- Run duration tracking:
+  - When a new run starts, the bridge updates the previous run's `meta.run_end_ts` to the new run's `base_ts`.
+  - As samples arrive for a run, the bridge updates `meta.run_end_inferred_ts` to the latest sample timestamp (only if explicit `run_end_ts` is not set).
+  - The API computes `duration_s` from these timestamps and indicates whether the duration is inferred or explicit.
+- Timed sessions: Use `POST /api/device/<id>/session` to start a timed run that automatically sends `new_run` at start and `shutdown` after the specified duration. The UI provides preset durations (5 min to 8 hours) with live countdown display.
 
 ## Services
 
@@ -353,10 +358,33 @@ mosquitto_pub -h localhost -t telemetry/dev-001 -m '{
 - `GET /api/device/<device_id>/meta` — device meta and metrics.
 - `GET /api/device/<device_id>/runs` — known runs for a device.
   - Ordering: `base_ts DESC` (newest first).
-  - Fields per row: `id, device_id, base_ts, run_key, meta`.
+  - Fields per row: `id, device_id, base_ts, run_key, meta, duration_s, duration_inferred`.
   - `base_ts`: ISO8601 timestamp (UTC) of the run's base/reference time.
   - `run_key`: optional device-supplied identifier for the run.
   - `meta`: free-form metadata (JSON string/object).
+  - `duration_s`: run duration in seconds (computed from `run_end_ts` or `run_end_inferred_ts` in `meta`).
+  - `duration_inferred`: `true` if duration is based on inferred end timestamp, `false` if explicit, `null` if no duration available.
+  - Run end tracking:
+    - `meta.run_end_ts`: Explicit run end timestamp, set when a new run is announced (the new run's `base_ts` becomes the previous run's `run_end_ts`).
+    - `meta.run_end_inferred_ts`: Inferred end timestamp, updated to the latest sample timestamp received for the run (only if `run_end_ts` is not set).
+- `POST /api/device/<device_id>/session` — start a timed session (authenticated).
+  - Auth: requires login.
+  - Starts a new run with automatic shutdown after the specified duration.
+  - Immediately publishes `{ "new_run": true }` to `control/<device_id>/set`.
+  - Schedules a background timer to publish `{ "shutdown": true }` after `duration_s` seconds.
+  - If a session is already active for the device, it is cancelled and replaced.
+  - Content-Type: `application/json`.
+  - Payload: `{ "duration_s": <int> }` — duration in seconds (must be positive, max 604800 = 7 days).
+  - Response: `200 { "ok": true, "duration_s": <int>, "stop_time": "<ISO8601>" }` on success.
+  - Error responses:
+    - `400 { "ok": false, "error": "..." }` for invalid duration.
+- `DELETE /api/device/<device_id>/session` — stop active timed session (authenticated).
+  - Auth: requires login.
+  - Immediately publishes `{ "shutdown": true }` to `control/<device_id>/set` and clears the session.
+  - Response: `200 { "ok": true }` on success, or `404 { "ok": false, "error": "No active session" }` if no session exists.
+- `GET /api/device/<device_id>/session` — get current session status.
+  - Returns: `{ "active": false }` if no session, or `{ "active": true, "duration_s": <int>, "remaining_s": <int>, "stop_time": "<ISO8601>" }` if session is running.
+  - Useful for UI to display countdown timer and session state.
 - `GET /api/samples/<device_id>?limit=&start=&end=` — JSON rows.
   - Ordering: `ts DESC, muon_count DESC` (deterministic).
   - `start`/`end`: ISO8601 (or epoch seconds) in UTC; optional.
