@@ -48,6 +48,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
     <ul>
       <li>Runs are announced by the device with a base timestamp.</li>
       <li>If telemetry includes only <code>dt</code> (ms), the bridge computes <code>ts = base_ts + dt</code>.</li>
+      <li>Duration is inferred from the data.
+      <li>Baseline and threshold are the values at the start of the run. If you change them,
+          this will not be reflected in this table.
+      </li>
+      </li>
     </ul>
   </div>
   
@@ -69,7 +74,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
     const formatted = `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    return inferred ? `${formatted} (inferred)` : formatted;
+    return formatted;
   }
 
   function render(rows) {

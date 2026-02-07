@@ -18,18 +18,82 @@ def login_required(view_func):
     return view_func
 
 # Session tracking infrastructure for timed runs
-_active_sessions = {}  # device_id -> {'stop_time': timestamp, 'duration_s': int, 'timer': threading.Timer}
+# device_id -> {session_id, state, stop_time, duration_s, timer, start_after_id, pending_since}
+_active_sessions = {}
 _sessions_lock = threading.Lock()
 
-def _stop_session_after_delay(device_id, duration_s):
+def _stop_session_after_delay(device_id, session_id, duration_s):
     """Background task that sends shutdown after the specified duration"""
     time.sleep(duration_s)
     with _sessions_lock:
-        if device_id in _active_sessions:
+        session_data = _active_sessions.get(device_id)
+        if session_data and session_data.get("session_id") == session_id:
             # Send shutdown command
             publish_control(device_id, {"shutdown": True}, retain=False)
             del _active_sessions[device_id]
             print(f"[Timed Session] Auto-shutdown sent to {device_id} after {duration_s}s")
+
+def _await_first_sample_then_start(app, device_id, session_id):
+    """Wait for a new run announcement and its first sample, then begin the timer."""
+    with app.app_context():
+        while True:
+            with _sessions_lock:
+                session_data = _active_sessions.get(device_id)
+                if not session_data or session_data.get("session_id") != session_id:
+                    return
+                start_after_id = session_data.get("start_after_id")
+                duration_s = session_data.get("duration_s")
+                last_run_base_ts = session_data.get("last_run_base_ts")
+                run_base_ts = session_data.get("run_base_ts")
+
+            if run_base_ts is None:
+                try:
+                    latest_run = (Run.query.filter_by(device_id=device_id)
+                                  .order_by(Run.base_ts.desc())
+                                  .first())
+                except Exception:
+                    latest_run = None
+
+                if latest_run and (last_run_base_ts is None or latest_run.base_ts > last_run_base_ts):
+                    run_base_ts = latest_run.base_ts
+                    with _sessions_lock:
+                        current = _active_sessions.get(device_id)
+                        if current and current.get("session_id") == session_id:
+                            current["run_base_ts"] = run_base_ts
+
+            if run_base_ts is None:
+                time.sleep(1)
+                continue
+
+            try:
+                sample = (Sample.query.filter_by(device_id=device_id)
+                          .filter(Sample.id > start_after_id)
+                          .filter(Sample.ts >= run_base_ts)
+                          .order_by(Sample.id.asc())
+                          .first())
+            except Exception:
+                sample = None
+
+            if sample:
+                start_time = time.time()
+                stop_time = start_time + duration_s
+                timer_thread = threading.Thread(
+                    target=_stop_session_after_delay,
+                    args=(device_id, session_id, duration_s),
+                    daemon=True
+                )
+                timer_thread.start()
+
+                with _sessions_lock:
+                    current = _active_sessions.get(device_id)
+                    if current and current.get("session_id") == session_id:
+                        current["state"] = "running"
+                        current["start_time"] = start_time
+                        current["stop_time"] = stop_time
+                        current["timer"] = timer_thread
+                return
+
+            time.sleep(1)
 
 def create_app():
     app = Flask(__name__)
@@ -170,7 +234,7 @@ def create_app():
         rows = Run.query.filter_by(device_id=device_id).order_by(Run.base_ts.desc()).all()
         result = []
         for r in rows:
-            # Parse meta to extract run_end_ts or run_end_inferred_ts
+            # Parse meta to extract run_end_inferred_ts
             meta_dict = r.meta
             if isinstance(meta_dict, str):
                 try:
@@ -184,9 +248,8 @@ def create_app():
             # Calculate duration if we have an end timestamp
             duration_s = None
             end_inferred = False
-            run_end_ts = meta_dict.get('run_end_ts')
-            if not run_end_ts:
-                run_end_ts = meta_dict.get('run_end_inferred_ts')
+            run_end_ts = meta_dict.get('run_end_inferred_ts')
+            if run_end_ts:
                 end_inferred = True
             
             if run_end_ts and r.base_ts:
@@ -237,7 +300,7 @@ def create_app():
         if start:
             q = q.filter(Sample.ts >= start)
         if end:
-            q = q.filter(Sample.ts <= end)
+            q = q.filter(Sample.ts < end)
         # Deterministic ordering: ts desc, then muon_count desc as tie-breaker
         q = q.order_by(Sample.ts.desc(), Sample.muon_count.desc()).limit(limit)
         rows = q.all()
@@ -274,7 +337,7 @@ def create_app():
         if start:
             q = q.filter(Sample.ts >= start)
         if end:
-            q = q.filter(Sample.ts <= end)
+            q = q.filter(Sample.ts < end)
         # Deterministic ordering for export: ts asc, then muon_count asc
         q = q.order_by(Sample.ts.asc(), Sample.muon_count.asc())
 
@@ -353,7 +416,7 @@ def create_app():
 
     @app.post('/api/device/<device_id>/session')
     def start_session(device_id):
-        """Start a timed session: publish new_run, schedule shutdown after duration"""
+        """Start a timed session: publish new_run, start timer after first sample"""
         payload = request.get_json(force=True, silent=True) or {}
         
         # Validate duration_s parameter
@@ -376,29 +439,42 @@ def create_app():
                 if old_timer:
                     old_timer.cancel()
                 del _active_sessions[device_id]
+
+            # Track last sample id and last run base so we start after a new run begins
+            last_sample_id = db.session.query(func.max(Sample.id)).filter_by(device_id=device_id).scalar() or 0
+            last_run = (Run.query.filter_by(device_id=device_id)
+                        .order_by(Run.base_ts.desc())
+                        .first())
+            last_run_base_ts = last_run.base_ts if last_run else None
+            session_id = time.time_ns()
             
             # Publish new_run to start the session
             publish_control(device_id, {"new_run": True}, retain=False)
-            
-            # Start background timer for shutdown
-            stop_time = time.time() + duration_s
-            timer_thread = threading.Thread(
-                target=_stop_session_after_delay, 
-                args=(device_id, duration_s), 
+
+            _active_sessions[device_id] = {
+                'session_id': session_id,
+                'state': 'pending',
+                'duration_s': duration_s,
+                'start_after_id': last_sample_id,
+                'last_run_base_ts': last_run_base_ts,
+                'run_base_ts': None,
+                'pending_since': time.time(),
+                'timer': None,
+                'stop_time': None,
+                'start_time': None,
+            }
+
+            wait_thread = threading.Thread(
+                target=_await_first_sample_then_start,
+                args=(app, device_id, session_id),
                 daemon=True
             )
-            timer_thread.start()
-            
-            _active_sessions[device_id] = {
-                'stop_time': stop_time,
-                'duration_s': duration_s,
-                'timer': timer_thread
-            }
+            wait_thread.start()
         
         return jsonify({
             'ok': True, 
             'duration_s': duration_s,
-            'stop_time': datetime.fromtimestamp(stop_time, tz=timezone.utc).isoformat()
+            'pending': True
         })
     
     @app.delete('/api/device/<device_id>/session')
@@ -430,14 +506,18 @@ def create_app():
                 return jsonify({'active': False})
             
             session_data = _active_sessions[device_id]
-            stop_time = session_data['stop_time']
-            remaining_s = max(0, int(stop_time - time.time()))
+            state = session_data.get('state')
+            stop_time = session_data.get('stop_time')
+            remaining_s = None
+            if stop_time:
+                remaining_s = max(0, int(stop_time - time.time()))
             
             return jsonify({
                 'active': True,
                 'duration_s': session_data['duration_s'],
                 'remaining_s': remaining_s,
-                'stop_time': datetime.fromtimestamp(stop_time, tz=timezone.utc).isoformat()
+                'stop_time': datetime.fromtimestamp(stop_time, tz=timezone.utc).isoformat() if stop_time else None,
+                'pending': (state == 'pending')
             })
 
     @app.get('/healthz')

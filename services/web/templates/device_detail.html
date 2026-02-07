@@ -137,10 +137,11 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           <th>Timed Session</th>
           <td>
             <select id="sessionDurationSel">
-              <option value="300">5 min</option>
+              <option value="60">1 min</option>
+              <option value="300" selected>5 min</option>
               <option value="600">10 min</option>
               <option value="1800">30 min</option>
-              <option value="3600" selected>1 hour</option>
+              <option value="3600">1 hour</option>
               <option value="7200">2 hours</option>
               <option value="14400">4 hours</option>
               <option value="28800">8 hours</option>
@@ -642,7 +643,11 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           if (data.active) {
             elStartSession.style.display = 'none';
             elStopSession.style.display = 'inline-block';
-            elSessionStatus.textContent = `Running (${formatDuration(data.remaining_s)} remaining)`;
+            if (data.pending) {
+              elSessionStatus.textContent = 'Initializing (waiting for first sample)';
+            } else {
+              elSessionStatus.textContent = `Running (${formatDuration(data.remaining_s)} remaining)`;
+            }
             
             // Continue polling while active
             if (!sessionCheckTimer) {
@@ -683,7 +688,7 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           if (!res.ok || data.ok === false) {
             elSessionStatus.textContent = data.error || 'Failed to start';
           } else {
-            elSessionStatus.textContent = `Started (${formatDuration(duration_s)} total)`;
+            elSessionStatus.textContent = 'Initializing (waiting for first sample)';
             checkSessionStatus(); // Update UI immediately
           }
         } catch (e) {

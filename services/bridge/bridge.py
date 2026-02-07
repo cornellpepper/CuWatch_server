@@ -1,6 +1,6 @@
 import os, json, time, sys
 import paho.mqtt.client as mqtt
-from sqlalchemy import create_engine, Table, MetaData, Column, BigInteger, String, DateTime, Integer, Boolean, text, UniqueConstraint
+from sqlalchemy import create_engine, Table, MetaData, Column, BigInteger, String, DateTime, Integer, Boolean, text, UniqueConstraint, select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError
 from datetime import datetime, timezone, timedelta
@@ -190,33 +190,10 @@ def on_message(client, userdata, msg):
                     if prev_run_base:
                         try:
                             prev_base_dt = datetime.fromisoformat(prev_run_base.replace('Z', '+00:00'))
-                            # Query the previous run to update its end timestamp
-                            sel = runs.select().where(
-                                (runs.c.device_id == device_id) & (runs.c.base_ts == prev_base_dt)
-                            )
-                            res = conn.execute(sel).mappings().fetchone()
-                            if res:
-                                prev_meta = {}
-                                try:
-                                    m = res.get("meta")
-                                    prev_meta = json.loads(m) if isinstance(m, str) else (m or {})
-                                except Exception:
-                                    prev_meta = {}
-                                
-                                # Set run_end_ts to the new run's base timestamp
-                                prev_meta["run_end_ts"] = announced_base.isoformat()
-                                
-                                # Update the run record
-                                upd_stmt = pg_insert(runs).values(
-                                    device_id=device_id,
-                                    base_ts=prev_base_dt,
-                                    meta=json.dumps(prev_meta)
-                                ).on_conflict_do_update(
-                                    index_elements=[runs.c.device_id, runs.c.base_ts],
-                                    set_={"meta": json.dumps(prev_meta)}
-                                )
-                                conn.execute(upd_stmt)
-                                dlog(f"Closed previous run for {device_id} @ {prev_base_dt.isoformat()} with end_ts={announced_base.isoformat()}")
+                            # Previous run will use run_end_inferred_ts (from samples) for duration
+                            # We don't set an explicit end timestamp here since there may be a gap
+                            # between the last sample and the new run announcement
+                            dlog(f"New run announced for {device_id} @ {announced_base.isoformat()}, previous run was @ {prev_base_dt.isoformat()}")
                         except Exception as close_err:
                             dlog(f"Error closing previous run for {device_id}: {close_err!r}")
                     
@@ -264,17 +241,30 @@ def on_message(client, userdata, msg):
                         run_meta = json.dumps(run_meta_obj)
                     except Exception:
                         run_meta = None
+                    
+                    # Generate run_key: if device provides run_id, use it; otherwise generate per-device counter
+                    final_run_key = None
+                    if run_id is not None:
+                        final_run_key = str(run_id)
+                    else:
+                        # Count existing runs for this device to generate sequential run number
+                        count_result = conn.execute(
+                            select(func.count()).select_from(runs).where(runs.c.device_id == device_id)
+                        )
+                        run_count = count_result.scalar() or 0
+                        final_run_key = str(run_count + 1)
+                    
                     rstmt = pg_insert(runs).values(
                         device_id=device_id,
                         base_ts=announced_base,
-                        run_key=(str(run_id) if run_id is not None else None),
+                        run_key=final_run_key,
                         meta=run_meta,
                     ).on_conflict_do_update(
                         index_elements=[runs.c.device_id, runs.c.base_ts],
-                        set_={"run_key": (str(run_id) if run_id is not None else None), "meta": run_meta},
+                        set_={"run_key": final_run_key, "meta": run_meta},
                     )
                     conn.execute(rstmt)
-                    dlog(f"Upserted run meta for {device_id} @ {announced_base.isoformat()}")
+                    dlog(f"Upserted run meta for {device_id} @ {announced_base.isoformat()} with run_key={final_run_key}")
 
                 # Compute absolute timestamp if only a relative dt is provided
                 dt_ms = None
@@ -341,7 +331,7 @@ def on_message(client, userdata, msg):
 
             conn.execute(samples.insert().values(**row))
 
-            # Update run_end_inferred_ts for the current run (if it exists and doesn't have explicit run_end_ts)
+            # Update run_end_inferred_ts for the current run (if it exists)
             try:
                 cr = (current_meta.get("current_run") or {}) if isinstance(current_meta, dict) else {}
                 base_iso = cr.get("base_ts")
@@ -360,33 +350,31 @@ def on_message(client, userdata, msg):
                         except Exception:
                             run_meta_obj = {}
                         
-                        # Only update inferred end if there's no explicit run_end_ts
-                        if "run_end_ts" not in run_meta_obj:
-                            # Update run_end_inferred_ts to the latest sample timestamp
-                            existing_inferred = run_meta_obj.get("run_end_inferred_ts")
-                            should_update = False
-                            if not existing_inferred:
-                                should_update = True
-                            else:
-                                try:
-                                    existing_dt = datetime.fromisoformat(existing_inferred.replace('Z', '+00:00'))
-                                    if abs_ts > existing_dt:
-                                        should_update = True
-                                except Exception:
+                        # Update run_end_inferred_ts to the latest sample timestamp
+                        existing_inferred = run_meta_obj.get("run_end_inferred_ts")
+                        should_update = False
+                        if not existing_inferred:
+                            should_update = True
+                        else:
+                            try:
+                                existing_dt = datetime.fromisoformat(existing_inferred.replace('Z', '+00:00'))
+                                if abs_ts > existing_dt:
                                     should_update = True
-                            
-                            if should_update:
-                                run_meta_obj["run_end_inferred_ts"] = abs_ts.isoformat()
-                                upd_stmt = pg_insert(runs).values(
-                                    device_id=device_id,
-                                    base_ts=base_dt,
-                                    meta=json.dumps(run_meta_obj)
-                                ).on_conflict_do_update(
-                                    index_elements=[runs.c.device_id, runs.c.base_ts],
-                                    set_={"meta": json.dumps(run_meta_obj)}
-                                )
-                                conn.execute(upd_stmt)
-                                dlog(f"Updated run_end_inferred_ts for {device_id} @ {base_dt.isoformat()} to {abs_ts.isoformat()}")
+                            except Exception:
+                                should_update = True
+                        
+                        if should_update:
+                            run_meta_obj["run_end_inferred_ts"] = abs_ts.isoformat()
+                            upd_stmt = pg_insert(runs).values(
+                                device_id=device_id,
+                                base_ts=base_dt,
+                                meta=json.dumps(run_meta_obj)
+                            ).on_conflict_do_update(
+                                index_elements=[runs.c.device_id, runs.c.base_ts],
+                                set_={"meta": json.dumps(run_meta_obj)}
+                            )
+                            conn.execute(upd_stmt)
+                            dlog(f"Updated run_end_inferred_ts for {device_id} @ {base_dt.isoformat()} to {abs_ts.isoformat()}")
             except Exception as inferred_err:
                 dlog(f"Error updating run_end_inferred_ts for {device_id}: {inferred_err!r}")
 
