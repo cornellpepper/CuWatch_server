@@ -137,13 +137,14 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
           <th>Timed Session</th>
           <td>
             <select id="sessionDurationSel">
+              <option value="30">30 sec</option>
               <option value="60">1 min</option>
+              <option value="150">2.5 min</option>
               <option value="300" selected>5 min</option>
               <option value="600">10 min</option>
               <option value="1800">30 min</option>
               <option value="3600">1 hour</option>
               <option value="7200">2 hours</option>
-              <option value="14400">4 hours</option>
               <option value="28800">8 hours</option>
               <option value="86400">24 hours</option>
               <option value="172800">2 days</option>
@@ -156,7 +157,10 @@ thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
         </tr>
       </tbody>
     </table>
-    <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (non‑retained commands).</div>
+    <div class="small" style="margin-top:.5rem;">All controls send JSON to MQTT topic <code>control/{{ device_id }}/set</code> (non‑retained commands). 
+      <br><br>For timed runs, the data collection stops after the time has elapsed. Press 
+      the reset button <b>on the device</b> to restart data collection.
+    </div>
   </div>
 </div>
 <div class="row" style="margin-top: 1rem;">
