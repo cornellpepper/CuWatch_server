@@ -31,6 +31,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
         <tr>
           <th style="width: auto; min-width: 4rem;">run</th>
           <th style="width: auto; min-width: 10rem;">Run start time</th>
+          <th style="width: auto; min-width: 5rem;">Duration</th>
           <th style="width: auto; min-width: 5rem;">Baseline</th>          
           <th style="width: auto; min-width: 5rem;">Threshold</th>          
           <th style="width: auto; min-width: 3.5rem;">Leader</th>
@@ -47,6 +48,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
     <ul>
       <li>Runs are announced by the device with a base timestamp.</li>
       <li>If telemetry includes only <code>dt</code> (ms), the bridge computes <code>ts = base_ts + dt</code>.</li>
+      <li>Duration is inferred from the data.
+      <li>Baseline and threshold are the values at the start of the run. If you change them,
+          this will not be reflected in this table.
+      </li>
+      </li>
     </ul>
   </div>
   
@@ -60,6 +66,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+  }
+
+  function formatDuration(seconds, inferred) {
+    if (seconds == null || !isFinite(seconds)) return '';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const formatted = `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return formatted;
   }
 
   function render(rows) {
@@ -89,6 +104,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
       const threshold = metaObj && metaObj.threshold != null ? String(metaObj.threshold) : '';
       const isLeader = metaObj && typeof metaObj.is_leader !== 'undefined' ? (metaObj.is_leader ? 'Y' : 'N') : '';
       const resetThr = metaObj && metaObj.reset_threshold != null ? String(metaObj.reset_threshold) : '';
+      const duration = formatDuration(r.duration_s, r.duration_inferred);
       const startIso = r.base_ts || '';
       const endIso = (idx > 0 && rows[idx - 1] && rows[idx - 1].base_ts) ? rows[idx - 1].base_ts : '';
       const href = `/api/export/${encodeURIComponent(deviceId)}.csv` + (startIso ? `?start=${encodeURIComponent(startIso)}${endIso ? `&end=${encodeURIComponent(endIso)}` : ''}` : '');
@@ -96,6 +112,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
       return `<tr>
         <td><code>${runLabel ? 'Run ' + escapeHtml(runLabel) : ''}</code></td>
         <td><code>${escapeHtml(localTs)}</code></td>
+        <td><code>${escapeHtml(duration)}</code></td>
         <td><code>${escapeHtml(baseline)}</code></td>
         <td><code>${escapeHtml(threshold)}</code></td>
         <td><code>${escapeHtml(isLeader)}</code></td>
