@@ -44,7 +44,7 @@ jobs:
           load: true
 
       - name:  Scan web image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: 'local/web:scan'
           scan-type: 'image'
@@ -71,7 +71,7 @@ jobs:
           load: true
 
       - name:  Scan bridge image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           image-ref: 'local/bridge:scan'
           scan-type: 'image'
