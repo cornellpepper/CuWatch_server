@@ -124,6 +124,34 @@ docker compose up --build
 # then open http://localhost:80
 ```
 
+### Start on boot with systemd
+
+This repository includes a systemd unit file at `deploy/cuwatch-compose.service` that brings the stack up during boot and shuts it down cleanly on service stop.
+
+Install and enable it:
+
+```bash
+# If your repo path is not /home/CuWatch/src/CuWatch_server,
+# edit WorkingDirectory in deploy/cuwatch-compose.service first.
+sudo cp deploy/cuwatch-compose.service /etc/systemd/system/cuwatch-compose.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now cuwatch-compose.service
+```
+
+Check status and logs:
+
+```bash
+systemctl status cuwatch-compose.service
+journalctl -u cuwatch-compose.service -f
+docker compose ps
+```
+
+Disable if needed:
+
+```bash
+sudo systemctl disable --now cuwatch-compose.service
+```
+
 ### Docker Compose: Dev & Maintenance
 
 Common workflows for running and maintaining the stack locally.
@@ -206,12 +234,40 @@ mosquitto_sub -h localhost -t 'telemetry/#' -v
 
 Backup and restore the dev database:
 
-```bash
-# Backup to a local file
-docker compose exec -T db pg_dump -U postgres -d iot > backup.sql
+The `db` container must be running for `pg_dump` to work. If the full stack is not up, start just the database service first:
 
-# Restore from a local file
+```bash
+docker compose up -d db
+```
+
+Backup to a timestamped SQL file (plain text, easy to inspect):
+
+```bash
+docker compose exec db pg_dump -U postgres iot > backup_$(date +%Y%m%d_%H%M%S).sql
+```
+
+Backup to a compressed binary dump (faster to restore, smaller file):
+
+```bash
+docker compose exec db pg_dump -U postgres -Fc iot > backup_$(date +%Y%m%d_%H%M%S).dump
+```
+
+Stop the db again if you started it just for the backup:
+
+```bash
+docker compose stop db
+```
+
+Restore from a plain SQL backup:
+
+```bash
 docker compose exec -T db psql -U postgres -d iot < backup.sql
+```
+
+Restore from a compressed `.dump` file:
+
+```bash
+docker compose exec -T db pg_restore -U postgres -d iot < backup.dump
 ```
 
 Persistent storage (compose override):
